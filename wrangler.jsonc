@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aslight",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-10-19",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api", "/api/*"],
+  },
+  "observability": { "enabled": true },
+  // D1/R2 bindings are intentionally absent until real resources are provisioned.
+  // See docs/DEPLOYMENT.md. Never use invented resource IDs.
+}
