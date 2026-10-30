@@ -190,6 +190,15 @@ export const quest = sqliteTable('quest', {
   rewardOperationId: text('reward_operation_id'),
   archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
 });
+export const courseQuestDeletion = sqliteTable('course_quest_deletion', {
+  id: text('id').primaryKey(),
+  snapshot: text('snapshot').notNull(),
+  actorId: text('actor_id')
+    .notNull()
+    .references(() => user.id),
+  deletedAt: integer('deleted_at').notNull(),
+  revision: integer('revision').notNull(),
+});
 export const progress = sqliteTable(
   'progress',
   {

@@ -4,6 +4,8 @@ import {
   connectCourseTasks,
   duplicateCourseTasks,
   moveCourseItems,
+  removeCourseQuest,
+  taskDeletionReason,
 } from '../src/client/course-editing.ts';
 import type { CourseDocument } from '../src/shared/editor.ts';
 
@@ -50,6 +52,19 @@ function fixture(): CourseDocument {
     ],
   };
 }
+
+test('removing an unused task preserves other tasks and never silently detaches dependent tasks', () => {
+  const original = fixture(),
+    before = structuredClone(original);
+  const next = removeCourseQuest(original, 'c');
+  assert.deepEqual(next.quests, before.quests.slice(0, 2));
+  assert.deepEqual(original, before);
+  assert.throws(() => removeCourseQuest(original, 'a'), /前置/);
+  assert.throws(() => removeCourseQuest(original, 'c', ['c']), /记录/);
+  original.quests[2]!.archived = true;
+  assert.match(taskDeletionReason(original, 'b', []) ?? '', /前置/);
+  assert.throws(() => removeCourseQuest(original, 'missing'), /不存在/);
+});
 test('canvas dependency edits keep branch modes and reject self, cycles, duplicates and archived references', () => {
   const original = fixture(),
     next = connectCourseTasks(original, 'a', 'c');

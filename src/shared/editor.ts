@@ -39,6 +39,11 @@ export const saveCourseSchema = z.strictObject({
   requestId: z.uuid(),
   reason: z.string().trim().min(1).max(300),
   document: courseDocumentSchema,
+  deletedQuestIds: z
+    .array(id)
+    .max(1000)
+    .refine((ids) => new Set(ids).size === ids.length)
+    .optional(),
 });
 export const contentAccessSchema = z.object({ canEdit: z.boolean() });
 export const editorSnapshotSchema = z.object({
@@ -47,6 +52,7 @@ export const editorSnapshotSchema = z.object({
   updatedBy: z.string().nullable(),
   document: courseDocumentSchema,
   assets: z.array(courseAssetSchema),
+  protectedQuestIds: z.array(id),
 });
 export type EditorSnapshot = z.infer<typeof editorSnapshotSchema>;
 export const permissionInputSchema = z.strictObject({

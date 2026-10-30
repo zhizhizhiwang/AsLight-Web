@@ -320,5 +320,166 @@ test(
       (await db.prepare('SELECT * FROM progress WHERE user_id=?').bind(b.id).all()).results,
       progressBefore,
     );
+    // Deletion is explicit, audited and guarded by live records, not just UI metadata.
+    await db.prepare('DELETE FROM throttle').run();
+    await json(`/api/admin/members/${a.id}/content-permission`, admin, {
+      canEdit: true,
+      expectedVersion: 2,
+      reason: '验证受控任务删除',
+    });
+    let current = await json('/api/content/course', editor);
+    assert.ok(current.protectedQuestIds.includes('main-001'));
+    const removeRequest = (snapshot, ids) => ({
+      expectedRevision: snapshot.revision,
+      requestId: randomUUID(),
+      reason: '移除无使用记录的任务',
+      deletedQuestIds: ids,
+      document: {
+        ...structuredClone(snapshot.document),
+        quests: snapshot.document.quests
+          .filter((q) => !ids.includes(q.id))
+          .map((q) => structuredClone(q)),
+      },
+    });
+    const deletion = removeRequest(current, ['new-task']);
+    await json('/api/content/course', member, deletion, 403);
+    assert.equal(
+      (await request('/api/content/course', editor, deletion, 'https://untrusted.example')).status,
+      403,
+    );
+    await json(
+      '/api/content/course',
+      editor,
+      { ...deletion, deletedQuestIds: ['new-task', 'new-task'] },
+      400,
+    );
+    const referenced = await json(
+      '/api/content/course',
+      editor,
+      removeRequest(current, ['main-002']),
+      409,
+    );
+    assert.equal(
+      referenced.error.code,
+      'DELETE_REFERENCED',
+      'archived references also block deletion',
+    );
+    const protectedDelete = removeRequest(current, ['main-001']);
+    protectedDelete.document.quests.forEach(
+      (q) => (q.prerequisites = q.prerequisites.filter((id) => id !== 'main-001')),
+    );
+    assert.equal(
+      (await json('/api/content/course', editor, protectedDelete, 409)).error.code,
+      'DELETE_BLOCKED',
+    );
+    const originalTask = current.document.quests.find((q) => q.id === 'new-task');
+    current = await json('/api/content/course', editor, deletion);
+    assert.equal(await db.prepare("SELECT id FROM quest WHERE id='new-task'").first(), null);
+    const deletedRow = await db
+      .prepare("SELECT * FROM course_quest_deletion WHERE id='new-task'")
+      .first();
+    assert.equal(deletedRow.actor_id, a.id);
+    assert.equal(deletedRow.revision, current.revision);
+    assert.deepEqual(JSON.parse(deletedRow.snapshot).definition.content, originalTask.content);
+    assert.equal((await json('/api/content/course', editor, deletion)).revision, current.revision);
+    await json('/api/content/course', editor, { ...deletion, requestId: randomUUID() }, 409);
+    const reused = {
+      expectedRevision: current.revision,
+      requestId: randomUUID(),
+      reason: '旧编号不得复用',
+      document: {
+        ...structuredClone(current.document),
+        quests: [...current.document.quests, originalTask],
+      },
+    };
+    assert.equal(
+      (await json('/api/content/course', editor, reused, 400)).error.code,
+      'TASK_ID_REUSED',
+    );
+    // Explicitly removing incoming references in the same save permits an otherwise-unused task deletion.
+    const unlinked = removeRequest(current, ['main-002']);
+    unlinked.document.quests.forEach(
+      (q) => (q.prerequisites = q.prerequisites.filter((id) => id !== 'main-002')),
+    );
+    current = await json('/api/content/course', editor, unlinked);
+    await db
+      .prepare(
+        "CREATE TRIGGER fail_deletion_audit BEFORE INSERT ON course_change BEGIN SELECT RAISE(ABORT,'forced deletion rollback'); END",
+      )
+      .run();
+    const rollbackDelete = removeRequest(current, ['side-001']);
+    await json('/api/content/course', editor, rollbackDelete, 500);
+    assert.deepEqual(await json('/api/content/course', editor), current);
+    assert.ok(await db.prepare("SELECT id FROM quest WHERE id='side-001'").first());
+    assert.equal(
+      await db.prepare("SELECT id FROM course_quest_deletion WHERE id='side-001'").first(),
+      null,
+    );
+    await db.prepare('DROP TRIGGER fail_deletion_audit').run();
+    // A real member start racing a delete must never leave orphan progress or silently remove a used task.
+    const raceDocument = structuredClone(current.document);
+    raceDocument.chapters.push({
+      id: 'delete-race',
+      title: '新章节',
+      description: '',
+      sortOrder: 10,
+      icon: null,
+      archived: false,
+    });
+    raceDocument.quests.push({
+      id: 'delete-race-task',
+      chapterId: 'delete-race',
+      title: '主线1',
+      summary: '任务内容待添加',
+      kind: 'main',
+      position: { x: 0, y: 0 },
+      prerequisites: [],
+      prerequisiteMode: 'all',
+      archived: false,
+    });
+    current = await json('/api/content/course', editor, {
+      expectedRevision: current.revision,
+      requestId: randomUUID(),
+      reason: '验证开始与删除并发',
+      document: raceDocument,
+    });
+    const race = await Promise.all([
+      request('/api/member/quests/delete-race-task/start', member, {}),
+      request('/api/content/course', editor, removeRequest(current, ['delete-race-task'])),
+    ]);
+    const hasProgress = await db
+      .prepare("SELECT quest_id FROM progress WHERE quest_id='delete-race-task'")
+      .first();
+    const hasTask = await db.prepare("SELECT id FROM quest WHERE id='delete-race-task'").first();
+    if (hasProgress) {
+      assert.ok(hasTask);
+      assert.equal(race[0].status, 200);
+      assert.equal(race[1].status, 409);
+    } else {
+      assert.equal(hasTask, null);
+      assert.equal(race[1].status, 200);
+      assert.ok([404, 409].includes(race[0].status));
+    }
+    const retainedHistory = await Promise.all(
+      ['assessment_attempt', 'assessment_review', 'reward_grant'].map(
+        async (table) => (await db.prepare(`SELECT * FROM ${table}`).all()).results,
+      ),
+    );
+    assert.deepEqual(retainedHistory, historyBefore);
+    assert.deepEqual(
+      (
+        await db
+          .prepare("SELECT * FROM progress WHERE user_id=? AND quest_id<>'delete-race-task'")
+          .bind(b.id)
+          .all()
+      ).results,
+      progressBefore,
+    );
+    await mf.dispose();
+    mf = worker();
+    db = await mf.getD1Database('DB');
+    assert.equal(await db.prepare("SELECT id FROM quest WHERE id='new-task'").first(), null);
+    assert.ok(await db.prepare("SELECT id FROM course_quest_deletion WHERE id='new-task'").first());
+    assert.deepEqual((await db.prepare('PRAGMA foreign_key_check').all()).results, []);
   },
 );

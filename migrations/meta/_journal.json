@@ -57,6 +57,13 @@
       "when": 1793250401558,
       "tag": "0007_live_course_editor",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793339285960,
+      "tag": "0008_task_deletion",
+      "breakpoints": true
     }
   ]
 }

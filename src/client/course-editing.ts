@@ -2,6 +2,26 @@ import type { CourseDocument } from '../shared/editor.ts';
 
 export type CanvasMove = { id: string; position: { x: number; y: number } };
 
+export function taskDeletionReason(
+  document: CourseDocument,
+  id: string,
+  protectedIds: readonly string[],
+): string | null {
+  if (!document.quests.some((q) => q.id === id)) return '任务不存在，请重新加载课程。';
+  if (protectedIds.includes(id)) return '此任务已有学习、考核或奖励记录，请使用归档。';
+  const reference = document.quests.find((q) => q.id !== id && q.prerequisites.includes(id));
+  return reference ? `「${reference.title}」仍把此任务作为前置，请先移除这条关系。` : null;
+}
+export function removeCourseQuest(
+  document: CourseDocument,
+  id: string,
+  protectedIds: readonly string[] = [],
+): CourseDocument {
+  const reason = taskDeletionReason(document, id, protectedIds);
+  if (reason) throw new Error(reason);
+  return { ...document, quests: document.quests.filter((q) => q.id !== id) };
+}
+
 export function moveCourseItems(document: CourseDocument, moves: CanvasMove[]): CourseDocument {
   if (
     moves.some(

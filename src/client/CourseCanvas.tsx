@@ -103,6 +103,7 @@ function Canvas(props: Props) {
   const root = useRef<HTMLDivElement>(null),
     contextButton = useRef<HTMLButtonElement>(null);
   const lastFocus = useRef(-1);
+  const lastSelected = useRef<string | null>(props.selectedId);
   const current = useRef({ ...props, mode, source, nodes });
   current.current = { ...props, mode, source, nodes };
   const restore = useCallback(
@@ -163,11 +164,16 @@ function Canvas(props: Props) {
     if (current.current.mode === 'connect') {
       if (!current.current.source) setSource(id);
       else if (current.current.onConnect(current.current.source, id)) setSource(null);
-    } else current.current.onSelect(id);
+    } else {
+      lastSelected.current = id;
+      current.current.onSelect(id);
+    }
   }, []);
   useEffect(() => {
-    const reset = lastFocus.current !== props.focusToken;
+    const reset =
+      lastFocus.current !== props.focusToken || lastSelected.current !== props.selectedId;
     lastFocus.current = props.focusToken;
+    lastSelected.current = props.selectedId;
     setNodes((old) => [
       ...props.quests.map((q): QuestNode => ({
         id: q.id,

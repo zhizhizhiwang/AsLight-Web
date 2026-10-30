@@ -15,7 +15,13 @@ import { ContentPreview } from './ContentPreview.tsx';
 import CourseCanvas from './CourseCanvas.tsx';
 import { EditorProperties } from './EditorProperties.tsx';
 import { CourseMediaProvider } from './CourseContent.tsx';
-import { connectCourseTasks, duplicateCourseTasks, moveCourseItems } from './course-editing.ts';
+import {
+  connectCourseTasks,
+  duplicateCourseTasks,
+  moveCourseItems,
+  removeCourseQuest,
+  taskDeletionReason,
+} from './course-editing.ts';
 import type { CanvasMove } from './course-editing.ts';
 import type { ChapterPresentation } from '../shared/content.ts';
 import './content-editor.css';
@@ -37,6 +43,14 @@ export default function ContentEditor({
   const [showPreview, setShowPreview] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
+  const [removed, setRemoved] = useState<{ quest: EditableQuest; index: number; saved: boolean }[]>(
+    [],
+  );
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmDelete) cancelDeleteRef.current?.focus();
+  }, [confirmDelete]);
   const [reload, setReload] = useState(0);
   const [confirmReload, setConfirmReload] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -55,6 +69,8 @@ export default function ContentEditor({
           setSnapshot(next);
           setDocument(next.document);
           setConfirmReload(false);
+          setRemoved([]);
+          setConfirmDelete(null);
           pending.current = null;
         }
       })
@@ -78,6 +94,10 @@ export default function ContentEditor({
   const task = document?.quests.find(
     (q) => q.id === params.get('quest') && q.chapterId === chapter?.id,
   );
+  const deleteReason =
+    document && task && snapshot
+      ? taskDeletionReason(document, task.id, snapshot.protectedQuestIds)
+      : null;
   const canvasQuests = useMemo(
     () => document?.quests.filter((q) => q.chapterId === chapter?.id && !q.archived) ?? [],
     [document?.quests, chapter?.id],
@@ -85,6 +105,7 @@ export default function ContentEditor({
   const choose = (chapterId: string, questId?: string) => {
     setParams({ chapter: chapterId, ...(questId ? { quest: questId } : {}) });
     setInspectorOpen(Boolean(questId));
+    setConfirmDelete(null);
     setFocusToken((v) => v + 1);
   };
   function addTaskAt(position: { x: number; y: number }) {
@@ -181,6 +202,38 @@ export default function ContentEditor({
   function presentation(next: ChapterPresentation) {
     if (chapter) changeChapter({ ...chapter, presentation: next });
   }
+  function removeTask(id: string) {
+    if (!document || !snapshot || busy) return;
+    const index = document.quests.findIndex((q) => q.id === id),
+      quest = document.quests[index];
+    if (!quest) return;
+    try {
+      const next = removeCourseQuest(document, id, snapshot.protectedQuestIds);
+      setRemoved((items) => [
+        ...items,
+        { quest, index, saved: snapshot.document.quests.some((q) => q.id === id) },
+      ]);
+      setDocument(next);
+      setConfirmDelete(null);
+      setError('');
+      setMessage('');
+      choose(quest.chapterId);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '无法删除任务。');
+    }
+  }
+  function undoRemoval(id: string) {
+    if (!document || busy) return;
+    const item = removed.find((item) => item.quest.id === id);
+    if (!item) return;
+    const quests = [...document.quests];
+    quests.splice(Math.min(item.index, quests.length), 0, item.quest);
+    setDocument({ ...document, quests });
+    setRemoved((items) => items.filter((item) => item.quest.id !== id));
+    setError('');
+    setMessage('');
+    choose(item.quest.chapterId, id);
+  }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!document || !snapshot || busy) return;
@@ -202,6 +255,9 @@ export default function ContentEditor({
       expectedRevision: snapshot.revision,
       reason: reason.trim(),
       document: parsed.data,
+      deletedQuestIds: snapshot.document.quests
+        .filter((old) => !parsed.data.quests.some((q) => q.id === old.id))
+        .map((q) => q.id),
     };
     const fingerprint = JSON.stringify(payload);
     if (!pending.current || pending.current.fingerprint !== fingerprint)
@@ -219,6 +275,8 @@ export default function ContentEditor({
       setSnapshot(next);
       setDocument(next.document);
       setReason('');
+      setRemoved([]);
+      setConfirmDelete(null);
       pending.current = null;
       setMessage('修改已保存并生效。其他人刷新即可看到。');
       onSaved();
@@ -286,6 +344,23 @@ export default function ContentEditor({
                 重新加载课程
               </Button>
             </div>
+            {removed.length > 0 && (
+              <div className="editor-removals" aria-label="本页移除的任务">
+                <p>保存前可撤销删除；已保存任务只有点击“保存修改”后才会永久删除。</p>
+                <ul>
+                  {removed.map((item) => (
+                    <li key={item.quest.id}>
+                      <span>
+                        {item.saved ? '待保存删除' : '已移除未保存任务'}：{item.quest.title}
+                      </span>
+                      <Button disabled={busy} onClick={() => undoRemoval(item.quest.id)}>
+                        撤销删除{item.quest.title}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {confirmReload && (
               <div className="editor-reload" role="alert">
                 <p>重新加载会丢弃本页未保存的修改。</p>
@@ -385,7 +460,7 @@ export default function ContentEditor({
                   </>
                 )}
                 <p className="account-note">
-                  已有章节和任务使用归档隐藏，学习与审核记录会保留。图片只能选择已登记的公开课程素材，当前不提供上传。
+                  无学习记录且未被其他任务引用的任务可以删除；其余任务使用归档隐藏并保留历史。图片只能选择已登记的公开课程素材，当前不提供上传。
                 </p>
               </Panel>
             </fieldset>
@@ -398,6 +473,7 @@ export default function ContentEditor({
                 focusToken={focusToken}
                 disabled={busy || chapter.archived}
                 onSelect={(id) => {
+                  setConfirmDelete(null);
                   setParams({ chapter: chapter.id, ...(id ? { quest: id } : {}) });
                   setInspectorOpen(Boolean(id));
                 }}
@@ -444,7 +520,10 @@ export default function ContentEditor({
             {active && chapter && inspectorOpen && (
               <EditorProperties
                 title={task ? '任务属性' : '章节属性'}
-                onClose={() => setInspectorOpen(false)}
+                onClose={() => {
+                  setInspectorOpen(false);
+                  setConfirmDelete(null);
+                }}
               >
                 <fieldset disabled={busy} className="editor-properties-fields">
                   {task ? (
@@ -610,6 +689,33 @@ export default function ContentEditor({
                       <Button onClick={() => changeTask({ ...task, archived: !task.archived })}>
                         {task.archived ? '恢复任务' : '归档任务'}
                       </Button>
+                      <Button
+                        disabled={busy || Boolean(deleteReason)}
+                        onClick={() =>
+                          snapshot.document.quests.some((q) => q.id === task.id)
+                            ? setConfirmDelete(task.id)
+                            : removeTask(task.id)
+                        }
+                      >
+                        删除任务
+                      </Button>
+                      {deleteReason && <p className="account-note">{deleteReason}</p>}
+                      {confirmDelete === task.id && (
+                        <div className="editor-reload" role="alert">
+                          <p>
+                            确认删除「{task.title}
+                            」？点击“保存修改”后会永久删除，网页暂不提供恢复入口。保存前可以撤销。
+                          </p>
+                          <div className="control-group">
+                            <Button disabled={busy} onClick={() => removeTask(task.id)}>
+                              确认删除，待保存
+                            </Button>
+                            <Button ref={cancelDeleteRef} onClick={() => setConfirmDelete(null)}>
+                              取消删除
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       {task.archived && (
                         <p className="account-note">该任务已归档，保存后成员端将隐藏。</p>
                       )}

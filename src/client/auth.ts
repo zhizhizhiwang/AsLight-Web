@@ -9,7 +9,10 @@ const errors: Record<string, string> = {
   STALE_COURSE: '课程已被他人修改。你的修改仍保留在本页，请核对后重新加载，避免覆盖他人的修改。',
   INVALID_COURSE:
     '请检查章节、前置关系与图片引用；启用的任务不能依赖已归档内容，前置关系不能形成循环。',
-  COURSE_IDENTITY: '已有章节和任务只能归档，不能删除。',
+  COURSE_IDENTITY: '章节不能直接删除；删除任务必须通过关联记录检查，请重新加载后核对。',
+  DELETE_REFERENCED: '其他任务仍引用待删除任务，请先移除前置关系。',
+  DELETE_BLOCKED: '待删除任务已有学习、考核或奖励记录。请撤销删除并使用归档。',
+  TASK_ID_REUSED: '已删除任务的编号不能重新使用，请重新创建任务。',
   LEARNING_RULE_LOCKED: '已有学习记录的任务不能直接修改前置或考核要求，请新增任务并归档旧任务。',
   STALE_STATE: '记录已变化，请重新加载后核对，再进行操作。',
   REQUEST_CONFLICT: '提交内容已变化，请重新加载后再操作。',

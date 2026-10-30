@@ -36,6 +36,27 @@
 .editor-save > .editor-reload {
   grid-column: 1 / -1;
 }
+.editor-save > .editor-removals {
+  grid-column: 1 / -1;
+}
+.editor-removals {
+  display: grid;
+  gap: 8px;
+}
+.editor-removals ul {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.editor-removals li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 .content-editor .editor-save {
   margin-bottom: 20px;
 }
