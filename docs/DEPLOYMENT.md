@@ -1,18 +1,18 @@
 # 部署、数据和体积预算
 
-状态：2026-10-31 已部署 [aslighters.org](https://aslighters.org)，Worker 为 aslight-production，使用独立 D1 aslight-production、正式认证密钥和 B2 私有桶。开发配置及 aslight-dev 保留；GitHub Actions 仍只检查、不发布。
+状态：2026-10-31 已部署 [aslighters.org](https://aslighters.org)，Worker 为 aslight-production，使用独立 D1 aslight-production、正式认证密钥和 B2 私有桶。开发配置及 aslight-dev 保留；GitHub Actions 只检查，Cloudflare Workers Builds 已连接 GitHub main 并负责正式构建和发布。
 
 ## 环境
 
 - 本地：Vite + Cloudflare 插件使用本地 Worker；本地 D1 与无短信账号，无需登录 Cloudflare，先执行 setup:local。
-- 测试：将来使用独立 Worker 名、D1 和 B2 私有桶；不得共用生产数据库、视频或账号密钥。
+- 测试：自动化测试使用本机临时 Worker／D1 和模拟 B2；界面测试也不得加载正式凭据或读取正式 B2。真实供应商联调必须使用独立测试桶／密钥，当前尚未配置，因此本地 B2 上传关闭。
 - 正式：production 环境，精确来源 `https://aslighters.org`，Custom Domain 自动管理 DNS 与证书，关闭 workers.dev 与预览地址。
 
 当前 wrangler.jsonc 的 DB 是真实创建的开发库 aslight-dev，不用于生产。B2 凭据已作为正式 Worker secret 配置；迁移位于 migrations。默认 HTTP 回环来源只能用于本地；公网认证要求精确 HTTPS 来源与独立密钥。
 
 compatibility_date 固定为当前安装运行时支持的 2026-10-19，不随电脑日期自动变化；更新日期或工具链必须重新跑本地 Worker 验证。
 
-production 已显式配置独立 DB、APP_ORIGIN、域名和日志／追踪；staging 尚未建立。Cloudflare 非继承绑定需要逐环境核对。CI 凭据最小权限，当前没有自动部署工作流。
+production 已显式配置独立 DB、APP_ORIGIN、域名和日志／追踪；staging 尚未建立。Cloudflare 非继承绑定需要逐环境核对。Workers Builds 的构建命令为 `npm run check && npm run build:production`，发布命令为 `npm run publish:production`。构建时就必须选择 production，不能把默认开发构建交给正式 Worker；发布前检查生成配置的 Worker 名、正式域名、正式 D1 及目标环境。GitHub Actions 不执行迁移或发布。
 
 ## 数据边界
 
@@ -74,10 +74,13 @@ D1 保存结构化数据；B2 私有桶保存成员视频；GitHub 保存代码�
 
 - `npm run db:migrate:production`：显式操作正式 D1，不触碰开发库；部署不自动执行迁移。
 - `npm run build:production`：以 production 环境构建并检查体积。
-- `npm run deploy:production`：先跑完整本地检查，再构建 production 并发布。默认保留已有远程 secrets；首次秘密配置通过被忽略的 JSON 文件及 Wrangler `--secrets-file` 上传，不在参数或日志中输出值。
-- `.dev.vars` 为本地配置；`.dev.vars.production` 保存独立正式认证密钥及 B2 配置，仅供本机生产构建／预览，已被 Git 忽略。修改本地秘密不会自动修改线上，必须显式更新正式 secret。
+- `npm run deploy`／`npm run deploy:production`：先跑完整本地检查，再构建 production，经目标校验后发布。默认保留已有远程 secrets；首次秘密配置通过被忽略的 JSON 文件及 Wrangler `--secrets-file` 上传，不在参数或日志中输出值。
+- `npm run publish:production`：发布已经生成的正式产物；拒绝本地地址、开发库、重复 DB 绑定和错误 Worker 名。显式使用已展开的配置和准确 Worker 名，不再对展开配置叠加环境后缀。
+- `.dev.vars` 只用于隔离本地环境；`.dev.vars.production` 保存正式配置，仅供正式构建／运维，不得加载到本地测试或预览。二者均已被 Git 忽略。`dev`／`build`／`preview` 会拒绝发现共用的生产资源或凭据，`preview` 另拒绝正式构建。修改本地秘密不会自动修改线上，必须显式更新正式 secret。
 - 首次管理员创建属于单独的权限变更，需站点所有者授权后，使用 `npm run auth:admin -- bootstrap --remote --origin=https://aslighters.org --env=production`。凭证只写 `.cache/admin-access/`，不在聊天、日志或仓库中公开；由所有者自行选择登录别称和密码激活。恢复同样使用受控运维工具。
 
 本次正式 D1 已执行 0000–0010 共十一个迁移，外键检查通过；没有复制本地账号、进度或测试记录。首次部署时线上课程为一章四项占位任务，之后的课程内容以线上保存版本为准。B2 已核实私有桶，增加仅允许正式站点 PUT 的 CORS 规则；已有规则保留。真实存储检查覆盖签名 PUT、HEAD、固定版本 Range（206）、匿名拒绝及版本永久删除，临时测试文件已清理。公网 HTTPS、静态资源、所有页面直达、匿名课程、会话查询、管理接口 401、来源校验 403 和未知 API 404 均通过。首个管理员已按站点所有者明确授权初始化，交付时凭证写入本地被忽略目录并核验了摘要、用途、有效期和未消费状态；开发者未设置密码。2026-10-31 复核正式库确认该管理员已激活。用户随后反馈已跑通一次线上流程；具体分支／手机设备覆盖及多运营商体验仍需补充记录。
 
 2026-10-31 新版 `1a4ba0ec-2537-4510-94e7-b5d4cf8f366f` 已发布鉴权后的视频分段缓存、实际容量及后台告警，保留每半小时 Cron。0010 只新增 storage_monitor、storage_alert；正式外键复核通过。用真实 B2 只读扫描取得初始完整快照并写入正式监控表，部署时 videos/ 为 0 字节，错误为空；该值仅代表扫描时点与密钥可见范围。现有上传密钥保持原权限，未设置额外监控密钥或升级套餐。管理页面首次读取或后续 Cron 会计算、保存告警。线上页面和新资源正常，匿名容量接口拒绝访问；缓存命中与告警恢复的业务验证使用隔离 Worker/D1，不操作正式视频或代登录实际管理员。
+
+后续纠正：发现已启用的 Workers Builds 使用默认开发构建，在 03c9fd7f-5349-4886-879d-7e48d5e1e0e3 将正式 Worker 的 APP_ORIGIN／D1 错设为本地地址／开发库。恢复正确版本后重新以准确目标发布 7db5c466-0402-464f-ab32-f65de74a422a，已读取云端设置确认正式来源、正式 DB 及域名归属；同时修正自动构建命令。此前本地界面测试读取正式 B2 的只读扫描也违反环境隔离要求，相关临时入口已停用，正式 B2 凭据已从本地配置移除；之后测试只使用临时数据库和模拟存储，不对正式站点运行业务测试。
