@@ -447,7 +447,11 @@ export function App() {
           {(session?.user.role === 'admin' || canEdit) && (
             <nav className="admin-navigation" aria-label="管理导航">
               {canEdit && (
-                <SidebarLink icon="edit" to="/content" onClick={() => setChaptersExpanded(false)}>
+                <SidebarLink
+                  icon="edit"
+                  to={{ pathname: '/content', search: navigationSearch }}
+                  onClick={() => setChaptersExpanded(false)}
+                >
                   章节设计
                 </SidebarLink>
               )}

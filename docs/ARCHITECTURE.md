@@ -47,6 +47,8 @@ React Router 使用声明式 BrowserRouter 处理客户端路由，无 SSR。当
 
 `client/ui.tsx` 提供按钮、链接按钮、侧栏导航、输入／选择／多行文本、字段与面板。`client/ui.css` 集中维护视觉变量和交互状态，页面仅负责排布；后台与成员端共用。按钮默认 type=button，表单提交显式指定 type=submit，避免抽取组件后误触提交。无需额外组件库。
 
+`CourseCanvas` 使用现有 React Flow 实现编辑画布，复用成员图谱的任务节点、图片和缩放控件。拖动中的临时位置留在画布状态，结束后写回当前课程文档；方向键移动、连线、复制和属性表单更新同一文档，仍由既有保存接口整体提交。装饰是单独类型，只有装饰移动模式可交互，不进入依赖或学习统计。`EditorProperties` 在桌面按需打开侧面板，窄屏使用原生 dialog；非编辑页面不挂载画布或属性弹层。没有新增服务端入口、依赖或数据库迁移。
+
 ## 代码边界
 
 - `client` 可以运行时依赖 `shared`，通过 type-only import 引用 Hono AppType。运行时禁止导入 server 和 Node 模块。

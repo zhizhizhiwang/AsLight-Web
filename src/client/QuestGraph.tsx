@@ -20,7 +20,7 @@ import { progressLabel, rewardLabel } from './progress.ts';
 import type { QuestFilter } from './App.tsx';
 import '@xyflow/react/dist/style.css';
 
-type QuestNode = Node<
+export type QuestNode = Node<
   {
     quest: Quest;
     progress: QuestProgress | undefined;
@@ -29,23 +29,45 @@ type QuestNode = Node<
     selected: boolean;
     crossChapter: boolean;
     preview: boolean;
+    editing?: boolean;
+    onNudge?: (id: string, x: number, y: number) => void;
   },
   'quest'
 >;
 
-function QuestMapNode({ data }: NodeProps<QuestNode>) {
+export function QuestMapNode({ data }: NodeProps<QuestNode>) {
   const { quest, context, onSelect, selected } = data;
   return (
     <div
       className={`quest-node-content ${quest.kind}${context ? ' context-node' : ''}${selected ? ' is-selected' : ''}`}
     >
-      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="target" position={Position.Left} isConnectable={Boolean(data.editing)} />
       <button
         id={`quest-trigger-${quest.id}`}
-        className="quest-node-button nodrag"
+        type="button"
+        className={`quest-node-button${data.editing ? '' : ' nodrag'}`}
         onClick={() => onSelect(quest.id)}
-        aria-label={`查看${quest.title}${context ? '，前置任务' : ''}`}
+        aria-label={`${data.editing ? '编辑' : '查看'}${quest.title}${context ? '，前置任务' : ''}`}
         aria-pressed={selected}
+        onKeyDown={(event) => {
+          if (!data.editing || !data.onNudge) return;
+          const step = event.shiftKey ? 1 : 10;
+          const delta =
+            event.key === 'ArrowLeft'
+              ? [-step, 0]
+              : event.key === 'ArrowRight'
+                ? [step, 0]
+                : event.key === 'ArrowUp'
+                  ? [0, -step]
+                  : event.key === 'ArrowDown'
+                    ? [0, step]
+                    : null;
+          if (delta) {
+            event.preventDefault();
+            event.stopPropagation();
+            data.onNudge(quest.id, delta[0] ?? 0, delta[1] ?? 0);
+          }
+        }}
       >
         <span className="quest-node-frame">
           <span className="quest-node-symbol" aria-hidden="true">
@@ -53,7 +75,9 @@ function QuestMapNode({ data }: NodeProps<QuestNode>) {
           </span>
         </span>
         <strong>{quest.title}</strong>
-        <small>{data.preview ? '预览' : progressLabel(data.progress)}</small>
+        <small>
+          {data.editing ? '拖动编排' : data.preview ? '预览' : progressLabel(data.progress)}
+        </small>
         {rewardLabel(data.progress) && (
           <small className={`reward-badge ${data.progress?.rewardStatus}`}>
             {rewardLabel(data.progress)}
@@ -62,14 +86,14 @@ function QuestMapNode({ data }: NodeProps<QuestNode>) {
         {context && <small>前置任务</small>}
         {data.crossChapter && <small>含跨章前置</small>}
       </button>
-      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <Handle type="source" position={Position.Right} isConnectable={Boolean(data.editing)} />
     </div>
   );
 }
 
 const nodeTypes = { quest: QuestMapNode };
 
-function GraphControls({ taskIds, compact }: { taskIds: string[]; compact: boolean }) {
+export function GraphControls({ taskIds, compact }: { taskIds: string[]; compact: boolean }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const { zoom } = useViewport();
   return (
