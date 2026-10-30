@@ -18,7 +18,7 @@ export function AssessmentHistory({ records }: { records: AssessmentRecord[] }) 
                   ? record.review.decision === 'passed'
                     ? '已通过'
                     : '需修改'
-                  : '等待线下考核'}
+                  : '等待考核'}
               </strong>
               <p>
                 {displayTime(record.requestedAt)} · 申请／登记：{record.requestedByName}

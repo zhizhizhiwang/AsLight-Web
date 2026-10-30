@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { chapterPresentationSchema, contentBlocksSchema, courseAssetSchema } from './content.ts';
 import type { ChapterPresentation, ContentBlock } from './content.ts';
+import { imageReferenceSchema } from './content.ts';
 
 export type QuestKind = 'main' | 'side';
 export type PrerequisiteMode = 'all' | 'any';
@@ -40,7 +41,7 @@ export const questDefinitionSchema = z.object({
   prerequisites: z.array(z.string()),
   prerequisiteMode: z.enum(['all', 'any']),
   position: z.object({ x: z.number(), y: z.number() }),
-  imageAssetId: z.string().min(1).max(100).optional(),
+  imageAssetId: imageReferenceSchema.optional(),
   content: contentBlocksSchema.optional(),
   assessmentContent: contentBlocksSchema.optional(),
 });

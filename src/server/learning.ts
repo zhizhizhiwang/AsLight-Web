@@ -167,8 +167,20 @@ export async function requestAssessment(
   const results = await env.DB.batch([
     env.DB.prepare(
       `UPDATE progress SET learning_status='submitted',version=version+1,operation_id=?,updated_at=?
-      WHERE user_id=? AND quest_id=? AND version=? AND learning_status IN ('in_progress','needs_revision') AND EXISTS (SELECT 1 FROM course_revision WHERE id='current' AND revision=?)`,
-    ).bind(id, now, userId, questId, input.expectedVersion, state.map.revision),
+      WHERE user_id=? AND quest_id=? AND version=? AND learning_status IN ('in_progress','needs_revision') AND EXISTS (SELECT 1 FROM course_revision WHERE id='current' AND revision=?)
+      AND (? IS NULL OR EXISTS (SELECT 1 FROM video WHERE id=? AND user_id=? AND quest_id=? AND status='ready' AND object_version IS NOT NULL AND attempt_id IS NULL))`,
+    ).bind(
+      id,
+      now,
+      userId,
+      questId,
+      input.expectedVersion,
+      state.map.revision,
+      input.videoId ?? null,
+      input.videoId ?? null,
+      userId,
+      questId,
+    ),
     env.DB.prepare(
       `INSERT INTO assessment_attempt (id,user_id,quest_id,number,requested_at,requested_by,member_note,state,request_key,request_hash)
       SELECT ?,?,?,(SELECT COALESCE(MAX(number),0)+1 FROM assessment_attempt WHERE user_id=? AND quest_id=?),?,?,?,'pending',?,?
@@ -188,6 +200,10 @@ export async function requestAssessment(
       questId,
       id,
     ),
+    env.DB.prepare(
+      `UPDATE video SET attempt_id=? WHERE id=? AND user_id=? AND quest_id=? AND status='ready' AND attempt_id IS NULL
+      AND EXISTS(SELECT 1 FROM assessment_attempt WHERE id=? AND user_id=? AND quest_id=?)`,
+    ).bind(id, input.videoId ?? null, userId, questId, id, userId, questId),
   ]);
   if (
     results[0]?.meta.changes !== 1 &&

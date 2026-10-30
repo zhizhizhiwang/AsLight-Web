@@ -1,9 +1,34 @@
 import { z } from 'zod';
 
-const assetId = z.string().min(1).max(100);
+export const courseImageUrlSchema = z
+  .string()
+  .max(2048)
+  .refine((value) => {
+    if (/^\/course-assets\/[a-z0-9][a-z0-9/_-]*\.(png|jpe?g|webp|avif|svg)$/i.test(value))
+      return !value.includes('//');
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === 'https:' &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash &&
+        !/[\s\\]/.test(value) &&
+        !url.hostname.endsWith('.backblazeb2.com')
+      );
+    } catch {
+      return false;
+    }
+  }, '请填写 HTTPS 图片链接或 /course-assets/ 下的图片路径。');
+export const imageReferenceSchema = z.union([
+  courseImageUrlSchema,
+  z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/),
+]);
+const assetId = imageReferenceSchema;
 // Only reviewed public course images may live here. Never point at member uploads.
 export const courseAssetSchema = z.strictObject({
-  id: assetId,
+  id: z.string().min(1).max(100),
   path: z.string().regex(/^\/course-assets\/[a-z0-9][a-z0-9/_-]*\.(png|jpe?g|webp|avif|svg)$/i),
   alt: z.string().trim().min(1).max(300),
   width: z.number().int().positive().max(8192),

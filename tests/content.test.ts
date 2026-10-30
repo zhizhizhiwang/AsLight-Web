@@ -5,6 +5,7 @@ import {
   contentAssetIds,
   contentBlocksSchema,
   courseAssetSchema,
+  courseImageUrlSchema,
 } from '../src/shared/content.ts';
 
 const asset = {
@@ -79,4 +80,23 @@ test('canvas configuration bounds geometry and layers without executable content
   ]) {
     assert.equal(chapterPresentationSchema.safeParse(value).success, false);
   }
+});
+
+test('authored image links allow HTTPS and deployed paths without executable or private upload links', () => {
+  for (const url of ['/course-assets/chapter/image.webp', 'https://images.example.test/image.png'])
+    assert.ok(courseImageUrlSchema.safeParse(url).success, url);
+  for (const url of [
+    '//evil.test/x',
+    'javascript:alert(1)',
+    'data:image/svg+xml,x',
+    'http://example.test/x',
+    '/api/admin/videos/x/stream',
+    '/uploads/x.mp4',
+    '/course-assets/a/../x.png',
+    '/course-assets/a//x.png',
+    'https://user:password@example.test/x',
+    'https://example.test/x?token=secret',
+    'https://s3.us-west-004.backblazeb2.com/private/x',
+  ])
+    assert.equal(courseImageUrlSchema.safeParse(url).success, false, url);
 });

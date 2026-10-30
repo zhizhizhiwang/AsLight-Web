@@ -469,7 +469,8 @@ export default function ContentEditor({
                   </>
                 )}
                 <p className="account-note">
-                  无学习记录且未被其他任务引用的任务可以删除；其余任务使用归档隐藏并保留历史。图片只能选择已登记的公开课程素材，当前不提供上传。
+                  无学习记录且未被其他任务引用的任务可以删除；其余任务使用归档隐藏并保留历史。图片填写公开链接或
+                  /course-assets/ 图片路径；新增文件由维护者随网站部署。
                 </p>
               </Panel>
             </fieldset>

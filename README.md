@@ -6,11 +6,11 @@
 
 已接入 React + Vite + Hono、FTB 式任务面板，以及 Better Auth + Drizzle/D1 的账号和个人进度。管理员创建待激活成员，私下交付专属凭证；成员自行设置 11 位数字登录别称、昵称和密码。手机号仅作别称，不验证号码归属，不发送短信或邮件。
 
-**课程仍为占位内容。** 已支持开始学习、申请线下考核、管理员通过／退回、重新申请及线下奖励领取登记。视频上传按当前决定暂缓，账号注销尚未开放。开发 D1 aslight-dev 已绑定并在本地迁移；没有部署线上网站。
+**课程仍为占位内容。** 已支持开始学习、申请线下考核、管理员通过／退回、重新申请及线下奖励领取登记。视频提交已接入 B2 私有桶直传、管理员鉴权播放、删除及定时清理；已配置真实 B2 并完成存储接口检查，账号注销尚未开放。正式站点为 [aslighters.org](https://aslighters.org)，使用独立 aslight-production 数据库与正式密钥；开发 D1 aslight-dev 保留。首个管理员已按站点所有者授权初始化，并已确认激活；开发者未代设密码。用户已反馈跑通一次线上流程；后续补充分支与设备覆盖记录。
 
 教程与考核文案由用户提供；当前关卡使用“主线1、主线2、主线3、支线1”等占位名称，开发工作只负责系统功能与内容承载。
 
-已支持 `/content` 章节设计：管理员单独授予已激活账号编辑权限。中央画布支持放置任务、拖动与多选移动、复制、前置连线及装饰定位；选中任务后打开图文与属性面板，坐标输入用于精确调整，并保留桌面／手机只读预览。属性说明主支线与前置的区别，已有学习记录的任务锁定前置与考核修改。保存即整体生效，其他人刷新查看，无发布流程；并发保存防覆盖，原有学习／审核／奖励保留。当前图片只能选择已登记公开素材，上传仍未实现。桌面画布操作与 390 × 844 浏览器视口检查已完成，尚未验证真机触摸手势，具体范围见 [ROADMAP](docs/ROADMAP.md)。
+已支持 `/content` 章节设计：管理员单独授予已激活账号编辑权限。中央画布支持放置任务、拖动与多选移动、复制、前置连线及装饰定位；选中任务后打开图文与属性面板，坐标输入用于精确调整，并保留桌面／手机只读预览。属性说明主支线与前置的区别，已有学习记录的任务锁定前置与考核修改。保存即整体生效，其他人刷新查看，无发布流程；并发保存防覆盖，原有学习／审核／奖励保留。图片改为填写 HTTPS 链接或 `/course-assets/...` 路径；仓库图片放在 `public/course-assets/` 随 Worker 静态资源部署，不提供网页上传。桌面画布操作与 390 × 844 浏览器视口检查已完成，尚未验证真机触摸手势，具体范围见 [ROADMAP](docs/ROADMAP.md)。
 
 ## 页面结构
 
@@ -39,7 +39,7 @@ npm run build        # 生产构建
 npm run preview      # 预览构建产物；认证的 APP_ORIGIN 必须与预览地址一致
 ```
 
-`npm run deploy` 会先执行全部检查再尝试部署，只有明确要发布且已配置正确的 Cloudflare 账号／资源时使用。当前初始化不执行此命令。
+`npm run deploy` 会先执行全部检查再尝试部署，只有明确要发布且已配置正确的 Cloudflare 账号／资源时使用。正式站点使用 `npm run deploy:production`，不会自动执行生产迁移；先运行 `npm run db:migrate:production` 应用已审核迁移。
 
 ## 目录
 
@@ -64,6 +64,7 @@ docs/                产品规则、架构、账号、开发、部署、路线�
 - [开发与验证](docs/DEVELOPMENT.md)：命令、检查、测试和变更流程。
 - [部署与数据](docs/DEPLOYMENT.md)：Cloudflare、环境隔离、备份和体积预算。
 - [实施路线](docs/ROADMAP.md)：已实现项和未来工作。
+- [视频存储与配置](docs/VIDEOS.md)：B2 私有桶、直传、播放、删除、配额与联调边界。
 - [课程展示数据](docs/CONTENT.md)：图文、图片引用、背景与装饰协议及当前存储边界。
 - [架构决策 0001](docs/adr/0001-single-repo-react-hono.md)：为何采用这套组合。
 
@@ -77,9 +78,9 @@ docs/                产品规则、架构、账号、开发、部署、路线�
 | POST /api/member/quests/:id/start | 开始已解锁任务，请求体为 {}                   |
 | /api/auth/*                       | Better Auth 别称登录与会话接口                |
 
-线下考核接口：`GET /api/member/quests/:id/learning` 读取自己的历史与奖励，`POST /api/member/quests/:id/assessments` 申请考核。管理员在 `/admin/learning` 选择成员与任务，配置任务奖励、登记考核、查看历史和登记实际交付；对应 `/api/admin/learning/*` 接口均验证管理员权限。完整规则见 [DOMAIN](docs/DOMAIN.md)。
+考核接口（视频与线下共用）：`GET /api/member/quests/:id/learning` 读取自己的历史与奖励，`POST /api/member/quests/:id/assessments` 申请考核。管理员在 `/admin/learning` 选择成员与任务，配置任务奖励、登记考核、查看历史和登记实际交付；对应 `/api/admin/learning/*` 接口均验证管理员权限。完整规则见 [DOMAIN](docs/DOMAIN.md)；视频上传、完成确认、管理员播放与删除接口见 [VIDEOS](docs/VIDEOS.md)。
 
-其他 API 返回 JSON 404。数据库课程使用 mode: placeholder，不复用示例任务 ID。成员课程响应的 map 包含 chapters、全课程 quests 和受控 assets 素材引用；只返回可浏览章节与未归档任务，匿名 progress 为 null。章节可见状态仅是基础字段，尚无网页编课或正式发布流程。账号测试见 [AUTH](docs/AUTH.md)，环境配置见 [DEPLOYMENT](docs/DEPLOYMENT.md)。
+其他 API 返回 JSON 404。数据库课程使用 mode: placeholder，不复用示例任务 ID。成员课程响应的 map 包含 chapters、全课程 quests 和受控 assets 素材引用；只返回可浏览章节与未归档任务，匿名 progress 为 null。章节可见状态用于浏览过滤；网页编课已实现，保存即生效，不设置独立发布流程。账号测试见 [AUTH](docs/AUTH.md)，环境配置见 [DEPLOYMENT](docs/DEPLOYMENT.md)。
 
 ## 协作
 

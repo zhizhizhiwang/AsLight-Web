@@ -6,8 +6,49 @@ import {
   text,
   uniqueIndex,
   foreignKey,
+  check,
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+
+export const video = sqliteTable(
+  'video',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    questId: text('quest_id')
+      .notNull()
+      .references(() => quest.id),
+    attemptId: text('attempt_id')
+      .unique()
+      .references(() => assessmentAttempt.id),
+    objectKey: text('object_key').notNull().unique(),
+    objectVersion: text('object_version'),
+    size: integer('size').notNull(),
+    mimeType: text('mime_type').notNull(),
+    status: text('status', { enum: ['uploading', 'ready', 'deleting', 'delete_failed', 'deleted'] })
+      .notNull()
+      .default('uploading'),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    uploadedAt: integer('uploaded_at'),
+    deleteRequestedAt: integer('delete_requested_at'),
+    deletedAt: integer('deleted_at'),
+    lastCleanupAt: integer('last_cleanup_at'),
+    deletedBy: text('deleted_by').references(() => user.id),
+    deleteReason: text('delete_reason'),
+  },
+  (t) => [
+    index('video_cleanup').on(t.status, t.createdAt),
+    index('video_owner').on(t.userId, t.questId),
+    check('video_size', sql`${t.size}>0 AND ${t.size}<=104857600`),
+    check(
+      'video_status',
+      sql`${t.status} IN ('uploading','ready','deleting','delete_failed','deleted')`,
+    ),
+  ],
+);
 
 // Better Auth 1.7.14 core schema. Property names match the adapter contract.
 export const user = sqliteTable('user', {

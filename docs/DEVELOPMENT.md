@@ -19,6 +19,9 @@ Node.js 24、npm、TypeScript strict。项目锁定 package-lock.json；安装�
 | npm run check:bundle          | 检查构建后的内部体积预算                                |
 | npm run check                 | 顺序运行全部静态检查、测试和构建                        |
 | npm run preview               | 在本地 Worker 预览已构建结果，默认 4173                 |
+| npm run build:production      | 显式以 production 构建并检查体积                        |
+| npm run db:migrate:production | 显式应用正式 D1 迁移，不随部署自动运行                  |
+| npm run deploy:production     | 完整本地检查通过后，构建并部署正式站点                  |
 
 Windows 若 npm.ps1 被限制，用 npm.cmd；不要为此修改全局 PowerShell 执行策略。
 
@@ -60,6 +63,14 @@ Drizzle Kit 的 @esbuild-kit/core-utils 的 esbuild 覆盖为 0.25.12，修复�
 
 ## 线下流程验证
 
-迁移到 0004 后，成员从任务详情开始学习并申请线下考核；管理员在 /admin → 线下考核与奖励选择成员和任务。奖励说明先按真实需求配置，再登记考核；没有奖励也可通过。退回后以成员账号查看反馈并重新申请，通过后验证下一任务已解锁，即使奖励尚未领取。领取只在实际线下交付后由管理员登记。
+迁移到 0004 后，成员从任务详情开始学习并申请线下考核；管理员在 /admin → 考核与奖励选择成员和任务。奖励说明先按真实需求配置，再登记考核；没有奖励也可通过。退回后以成员账号查看反馈并重新申请，通过后验证下一任务已解锁，即使奖励尚未领取。领取只在实际线下交付后由管理员登记。
 
 tests/integration/learning.test.mjs 使用独立临时数据库与随机测试凭证，真实走激活和登录 API，验证成员隔离、越权、过期版本、重复／冲突重试、并发审核与领取、旧历史保留、奖励快照、无奖励通过、失败回滚和重启持久化。不会向现有开发库或云端插入测试进度。浏览器测试数据必须单独标记并在验证后清理，不操作真实成员进度。
+
+## 正式部署与视频验证
+
+正式站点是 [aslighters.org](https://aslighters.org)。`scripts/production.mjs` 在构建前指定 production 环境，正式域名、APP_ORIGIN 和 D1 绑定取自 `wrangler.jsonc` 对应环境；默认 `npm run build` 仍是本地配置构建，不能据此直接认定正式绑定正确。完整发布和迁移顺序见 [DEPLOYMENT](DEPLOYMENT.md)。
+
+`tests/integration/videos.test.mjs` 使用构建后的真实本地 Worker／临时 D1 和模拟 B2，覆盖归属、文件属性、固定版本、考核关联、并发配额、管理员删除、Cron 重试及审核保留。真实 B2 存储检查另行完成，不等同于真实手机经网站上传／审核／删除的验收；边界见 [VIDEOS](VIDEOS.md)。
+
+管理员运维工具的远程 `--file` 导入只返回执行摘要，不能用该摘要判断凭证是否存在。工具已改为导入后独立查询本次凭证 ID，确认结果后才交付本地文件；兼容进度文字出现在 JSON 前。若出现操作错误，应先核对正式库状态，不能因本地解析失败就认定远程写入未发生。凭证／密钥及其明文不得写入工作记录或提交仓库。

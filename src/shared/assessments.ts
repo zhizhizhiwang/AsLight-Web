@@ -6,6 +6,7 @@ export const requestAssessmentInput = z.strictObject({
   requestId: z.uuid(),
   expectedVersion: z.number().int().nonnegative(),
   note: z.string().trim().max(1000),
+  videoId: z.uuid().optional(),
 });
 export const offlineReviewInput = z
   .strictObject({

@@ -13,6 +13,7 @@ import { AssessmentHistory, RewardSummary } from './AssessmentHistory.tsx';
 import { requestId } from './learning-request.ts';
 import type { PendingOperation } from './learning-request.ts';
 import type { FormEvent } from 'react';
+import { VideoSubmission } from './Videos.tsx';
 
 interface Props {
   quest: Quest;
@@ -222,8 +223,8 @@ export function QuestDetails({
               <strong>{progressLabel(current)}</strong>
               <p>
                 {current?.learningStatus === 'submitted'
-                  ? '已申请，请与管理员约定线下考核。'
-                  : '完成学习后可申请线下考核，由管理员登记结果。'}
+                  ? '已申请考核，请等待管理员处理。'
+                  : '完成学习后可申请考核，由管理员登记结果。'}
               </p>
             </div>
             {!progress ? (
@@ -265,6 +266,19 @@ export function QuestDetails({
             </Button>
             {detail && (
               <>
+                {!readOnlyPreview &&
+                  detail.progress.unlocked &&
+                  ['in_progress', 'needs_revision'].includes(detail.progress.learningStatus) && (
+                    <VideoSubmission
+                      key={`${quest.id}:${detail.progress.version}`}
+                      questId={quest.id}
+                      version={detail.progress.version}
+                      onSubmitted={() => {
+                        onStarted();
+                        setRetry((n) => n + 1);
+                      }}
+                    />
+                  )}
                 {detail.progress.unlocked &&
                   ['in_progress', 'needs_revision'].includes(detail.progress.learningStatus) && (
                     <form className="form-stack" onSubmit={(event) => void apply(event)}>

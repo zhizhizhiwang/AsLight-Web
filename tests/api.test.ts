@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { z } from 'zod';
-import app from '../src/server/index.ts';
+import { app } from '../src/server/index.ts';
 
 test('health reports scaffold status rather than claiming database readiness', async () => {
   const response = await app.request('/api/health');

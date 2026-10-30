@@ -9,8 +9,9 @@ import { admin } from './admin.ts';
 import { content } from './content.ts';
 import { MAX_COURSE_BYTES } from '../shared/editor.ts';
 import type { Bindings } from './bindings.ts';
+import { videos, cleanupVideos } from './videos.ts';
 
-const app = new Hono<{ Bindings: Bindings }>()
+export const app = new Hono<{ Bindings: Bindings }>()
   .use('*', secureHeaders({ referrerPolicy: 'no-referrer' }))
   .use('/api/*', async (c, next) =>
     bodyLimit({
@@ -55,6 +56,7 @@ const app = new Hono<{ Bindings: Bindings }>()
   .route('/api/member', member)
   .route('/api/access', access)
   .route('/api/content', content)
+  .route('/api/videos', videos)
   .route('/api/admin', admin);
 
 app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: '接口不存在。' } }, 404));
@@ -65,4 +67,9 @@ app.onError((error, c) =>
 );
 
 export type AppType = typeof app;
-export default app;
+export default {
+  fetch: app.fetch,
+  scheduled(_event: ScheduledController, env: Bindings, ctx: ExecutionContext) {
+    ctx.waitUntil(cleanupVideos(env));
+  },
+};

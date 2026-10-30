@@ -1,5 +1,6 @@
 import { Button, Input, Select, Textarea, Field, Panel, ButtonLink } from './ui.tsx';
 import { useEffect, useRef, useState } from 'react';
+import { AdminVideos } from './Videos.tsx';
 import type { FormEvent } from 'react';
 import { z } from 'zod';
 import { authClient, requestJson } from './auth.ts';
@@ -105,9 +106,15 @@ function LearningEditor({
           {rewardLabel(progress) ? ` · ${rewardLabel(progress)}` : ''}
         </p>
         <p>{quest.summary}</p>
+        <AdminVideos
+          key={`${view.member.id}:${quest.id}`}
+          userId={view.member.id}
+          questId={quest.id}
+          revision={progress.version}
+        />
         {canReview ? (
           <form className="form-stack" onSubmit={(event) => void submit(event, 'review')}>
-            <h3>{pending ? '处理线下考核申请' : '直接登记线下考核'}</h3>
+            <h3>{pending ? '处理考核申请' : '直接登记线下考核'}</h3>
             {pending?.memberNote && <p className="preserve-text">成员备注：{pending.memberNote}</p>}
             <Field>
               考核结果
@@ -134,7 +141,7 @@ function LearningEditor({
               />
             </Field>
             <p className="account-note">
-              请在线下完成考核后登记。保存后保留记录；需修改时，成员可重新申请。
+              请观看视频或在线下完成考核后登记。保存后保留记录；需修改时，成员可重新申请。视频由你另行决定何时删除。
             </p>
             <Button variant="primary" type="submit" disabled={busy}>
               保存考核结果
@@ -282,7 +289,7 @@ export function AdminLearning() {
     <div className="admin-page">
       <ButtonLink to="/admin">返回成员管理</ButtonLink>
       <Panel className="form-stack">
-        <h2>线下考核与奖励</h2>
+        <h2>考核与奖励</h2>
         <Field>
           选择成员
           <Select value={memberId} onChange={(event) => setMemberId(event.target.value)}>

@@ -7,6 +7,7 @@ import { loginAliasInput } from '../shared/access.ts';
 import type { Bindings } from './bindings.ts';
 import { learningAdmin } from './learning-admin.ts';
 import { permissionInputSchema } from '../shared/editor.ts';
+import { videoAdmin } from './videos.ts';
 
 const nameInput = z.strictObject({ name: z.string().trim().min(1).max(40) });
 const reasonInput = z.strictObject({ reason: z.string().trim().min(1).max(200) });
@@ -194,4 +195,5 @@ export const admin = new Hono<{ Bindings: Bindings; Variables: { actor: Actor } 
     }
     return c.json({ success: true });
   })
-  .route('/learning', learningAdmin);
+  .route('/learning', learningAdmin)
+  .route('/videos', videoAdmin);

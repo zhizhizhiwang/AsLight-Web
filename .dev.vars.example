@@ -2,3 +2,11 @@
 # BETTER_AUTH_SECRET=replace-with-a-random-secret-of-at-least-32-characters
 # APP_ORIGIN=http://127.0.0.1:5173
 # 无短信／邮件服务，不需要 Resend 或其他发信密钥。
+
+# B2 视频服务：全部配置后才开放上传；真实值只放 .dev.vars 或平台 secret。
+# B2_S3_ENDPOINT=https://s3.us-west-004.backblazeb2.com
+# B2_BUCKET_NAME=your-private-video-bucket
+# B2_BUCKET_ID=your-bucket-id
+# B2_KEY_ID=your-application-key-id
+# B2_APPLICATION_KEY=your-application-key
+# 配置说明和 CORS 见 docs/VIDEOS.md。不要将桶设为 Public。

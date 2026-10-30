@@ -54,14 +54,14 @@ export function AssetField({
   return (
     <Field>
       {label}
-      <Select value={value ?? ''} required={!optional} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{optional ? '不使用图片' : '请选择图片'}</option>
-        {assets.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.alt}
-          </option>
-        ))}
-      </Select>
+      <Input
+        value={assets.find((a) => a.id === value)?.path ?? value ?? ''}
+        required={!optional}
+        maxLength={2048}
+        placeholder="/course-assets/chapter/image.webp 或 HTTPS 图片链接"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <small>填写公开图片链接；留空则不使用图片。</small>
     </Field>
   );
 }
@@ -211,10 +211,13 @@ export function BlocksEditor({
           添加列表
         </Button>
         <Button
-          disabled={!assets.length || value.length >= 100}
+          disabled={value.length >= 100}
           onClick={() => {
             const asset = assets[0];
-            if (asset) onChange([...value, { type: 'image', assetId: asset.id, alt: asset.alt }]);
+            onChange([
+              ...value,
+              { type: 'image', assetId: asset?.path ?? '', alt: asset?.alt ?? '' },
+            ]);
           }}
         >
           添加图片
@@ -246,7 +249,7 @@ export function DecorationsEditor({
     };
     const asset = assets[0];
     if (type === 'text') onChange([...value, { ...base, type, text: '' }]);
-    else if (asset) onChange([...value, { ...base, type, assetId: asset.id, alt: asset.alt }]);
+    else onChange([...value, { ...base, type, assetId: asset?.path ?? '', alt: asset?.alt ?? '' }]);
   };
   return (
     <fieldset className="editor-group">
@@ -325,7 +328,7 @@ export function DecorationsEditor({
         <Button disabled={value.length >= 100} onClick={() => add('text')}>
           添加文字装饰
         </Button>
-        <Button disabled={!assets.length || value.length >= 100} onClick={() => add('image')}>
+        <Button disabled={value.length >= 100} onClick={() => add('image')}>
           添加图片装饰
         </Button>
       </div>

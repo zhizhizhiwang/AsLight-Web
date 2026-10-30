@@ -10,6 +10,7 @@ import {
   chapterPresentationSchema,
   contentAssetIds,
   courseAssetSchema,
+  courseImageUrlSchema,
 } from '../shared/content.ts';
 import { questDefinitionSchema } from '../shared/quests.ts';
 import { validateQuestGraph } from './domain/quest-graph.ts';
@@ -85,7 +86,7 @@ export function validateDocument(document: CourseDocument, assetIds: ReadonlySet
     if (q.imageAssetId) refs.push(q.imageAssetId);
     refs.push(...contentAssetIds(q.content), ...contentAssetIds(q.assessmentContent));
   }
-  if (refs.some((id) => !assetIds.has(id))) fail();
+  if (refs.some((id) => !assetIds.has(id) && !courseImageUrlSchema.safeParse(id).success)) fail();
 }
 
 export const content = new Hono<{ Bindings: Bindings; Variables: { actor: string } }>()

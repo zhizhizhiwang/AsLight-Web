@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ContentBlock, CourseAsset } from '../shared/content.ts';
+import { courseImageUrlSchema } from '../shared/content.ts';
 import type { Quest } from '../shared/quests.ts';
 
 const Assets = createContext<ReadonlyMap<string, CourseAsset>>(new Map());
@@ -29,8 +30,10 @@ export function CourseImage({
   fallback?: ReactNode;
 }) {
   const asset = useContext(Assets).get(assetId ?? '');
+  const path =
+    asset?.path ?? (courseImageUrlSchema.safeParse(assetId).success ? assetId : undefined);
   const [failed, setFailed] = useState<string | null>(null);
-  if (!asset || failed === asset.path) {
+  if (!path || failed === path) {
     return (
       fallback ??
       (decorative ? null : (
@@ -47,14 +50,14 @@ export function CourseImage({
   return (
     <img
       className={`course-image ${className}`}
-      src={asset.path}
-      alt={decorative ? '' : (alt ?? asset.alt)}
-      width={asset.width}
-      height={asset.height}
+      src={path}
+      alt={decorative ? '' : (alt ?? asset?.alt ?? '课程图片')}
+      width={asset?.width}
+      height={asset?.height}
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
-      onError={() => setFailed(asset.path)}
+      onError={() => setFailed(path)}
     />
   );
 }

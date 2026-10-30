@@ -7,8 +7,12 @@ import type { Bindings } from './bindings.ts';
 
 export class AccessError extends Error {
   code: string;
-  status: 400 | 401 | 403 | 404 | 409 | 410 | 429;
-  constructor(code: string, message: string, status: 400 | 401 | 403 | 404 | 409 | 410 | 429) {
+  status: 400 | 401 | 403 | 404 | 409 | 410 | 429 | 503;
+  constructor(
+    code: string,
+    message: string,
+    status: 400 | 401 | 403 | 404 | 409 | 410 | 429 | 503,
+  ) {
     super(message);
     this.code = code;
     this.status = status;

@@ -244,7 +244,7 @@ export function App() {
             pathname === '/content'
               ? '章节设计'
               : pathname === '/admin/learning'
-                ? '线下考核与奖励'
+                ? '考核与奖励'
                 : pathname === '/admin'
                   ? '成员管理'
                   : '个人账号',

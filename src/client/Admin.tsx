@@ -134,7 +134,7 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
     );
   return (
     <div className="admin-page">
-      <ButtonLink to="/admin/learning">线下考核与奖励</ButtonLink>
+      <ButtonLink to="/admin/learning">考核与奖励</ButtonLink>
       <Panel className="admin-create">
         <p className="section-kicker">成员管理</p>
         <h2>创建待激活成员</h2>

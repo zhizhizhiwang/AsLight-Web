@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "aslight",
+  "account_id": "023428d7d1f5225a60e341d6ff0369cf",
   "main": "src/server/index.ts",
   "compatibility_date": "2026-10-19",
   "compatibility_flags": ["nodejs_compat"],
@@ -20,6 +21,29 @@
     "run_worker_first": ["/api", "/api/*"],
   },
   "observability": { "enabled": true, "redact_query_string": true },
+  "triggers": { "crons": ["*/30 * * * *"] },
+  "env": {
+    "production": {
+      "name": "aslight-production",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "aslighters.org", "custom_domain": true }],
+      "vars": { "APP_ORIGIN": "https://aslighters.org" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aslight-production",
+          "database_id": "b0b1538d-a98a-483b-9c05-447440457cab",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "observability": {
+        "enabled": true,
+        "redact_query_string": true,
+        "traces": { "enabled": true },
+      },
+    },
+  },
   // Development resource only. Production must use a separate DB, HTTPS origin,
   // independent platform secrets. See docs/DEPLOYMENT.md.
 }

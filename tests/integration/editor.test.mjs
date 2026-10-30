@@ -163,6 +163,13 @@ test(
         { type: 'paragraph', text: '任务内容待添加'.repeat(1200) },
       ],
     });
+    draft.chapters.at(-1).presentation.backgroundAssetId = '/course-assets/chapter/background.webp';
+    draft.quests.at(-1).imageAssetId = 'https://images.example.test/node.webp';
+    draft.quests.at(-1).content.push({
+      type: 'image',
+      assetId: '/course-assets/chapter/detail.webp',
+      alt: '图片说明',
+    });
     const save = payload(draft);
     assert.equal(
       (await request('/api/content/course', editor, save, 'https://untrusted.example')).status,
@@ -174,6 +181,14 @@ test(
     const publicMap = await json('/api/member/quest-map');
     assert.equal(publicMap.map.chapters.at(-1).title, '新增章节');
     assert.equal(publicMap.progress, null);
+    assert.equal(
+      publicMap.map.quests.find((q) => q.id === 'new-task').imageAssetId,
+      'https://images.example.test/node.webp',
+    );
+    assert.equal(
+      publicMap.map.chapters.at(-1).presentation.backgroundAssetId,
+      '/course-assets/chapter/background.webp',
+    );
     assert.equal(
       (await json('/api/content/course', editor, save)).revision,
       1,

@@ -4,16 +4,18 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { adminProvisionSQL } from './admin-provision.mjs';
 
-const [mode, target, originArg, ...extra] = process.argv.slice(2);
+const [mode, target, ...options] = process.argv.slice(2);
+const originArg = options.find((option) => option.startsWith('--origin='));
+const envArg = options.find((option) => option.startsWith('--env='));
 if (
   !['bootstrap', 'recover'].includes(mode) ||
   !['--local', '--remote'].includes(target) ||
-  extra.length ||
-  (originArg && !originArg.startsWith('--origin=')) ||
+  options.length !== Number(Boolean(originArg)) + Number(Boolean(envArg)) ||
+  (envArg && !/^--env=[a-zA-Z0-9_-]+$/.test(envArg)) ||
   (target === '--remote' && !originArg)
 )
   throw new Error(
-    'Usage: npm run auth:admin -- bootstrap|recover --local|--remote [--origin=https://your-site.example]',
+    'Usage: npm run auth:admin -- bootstrap|recover --local|--remote [--origin=https://your-site.example] [--env=production]',
   );
 const origin = new URL(originArg?.slice('--origin='.length) ?? 'http://127.0.0.1:5173').origin;
 if (target === '--remote' && !origin.startsWith('https:'))
@@ -31,33 +33,47 @@ const sql = adminProvisionSQL({
 await mkdir('.cache/admin-access', { recursive: true });
 const sqlFile = `.cache/admin-access/${claimId}.sql`;
 await writeFile(sqlFile, sql, { mode: 0o600 });
-const result = spawnSync(
-  process.execPath,
-  [
-    path.resolve('node_modules/wrangler/bin/wrangler.js'),
-    'd1',
-    'execute',
-    'DB',
-    target,
-    '--json',
-    '--file',
-    sqlFile,
-  ],
-  {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      WRANGLER_SEND_METRICS: 'false',
-      WRANGLER_LOG_PATH: path.resolve('.cache/wrangler'),
+// Remote --file imports return only an execution summary. Read the claim back
+// with a separate query, keeping credentials out of command arguments/output.
+function execute(extraArgs) {
+  return spawnSync(
+    process.execPath,
+    [
+      path.resolve('node_modules/wrangler/bin/wrangler.js'),
+      'd1',
+      'execute',
+      'DB',
+      '--config',
+      path.resolve('wrangler.jsonc'),
+      ...(envArg ? ['--env', envArg.slice('--env='.length)] : []),
+      target,
+      '--json',
+      ...extraArgs,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        WRANGLER_SEND_METRICS: 'false',
+        WRANGLER_LOG_PATH: path.resolve('.cache/wrangler'),
+      },
     },
-  },
-);
+  );
+}
+const result = execute(['--file', sqlFile]);
 await unlink(sqlFile);
 if (result.status !== 0)
   throw new Error(
     'Operator request failed. Confirm the selected database and apply its migrations.',
   );
-const entries = JSON.parse(result.stdout);
+const verified = execute([
+  '--command',
+  `SELECT id,purpose FROM account_claim WHERE id='${claimId}' AND used_at IS NULL AND revoked_at IS NULL`,
+]);
+if (verified.status !== 0) throw new Error('Operator verification failed.');
+const jsonStart = verified.stdout.search(/^\s*\[/m);
+if (jsonStart < 0) throw new Error('Operator response did not contain a JSON result.');
+const entries = JSON.parse(verified.stdout.slice(jsonStart));
 const row = entries.flatMap((entry) => entry.results ?? []).find((row) => row.id === claimId);
 if (!row)
   throw new Error(
