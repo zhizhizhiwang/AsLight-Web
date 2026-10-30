@@ -22,7 +22,7 @@
 }
 ```
 
-5. 部署前在目标 D1 执行 0009 及此前迁移；仅新增 video，不重建 user、progress 或考核父表。应用包含每 30 分钟 Cron；部署后检查 Cron 已启用。迁移、secret 和部署都需要显式指向目标环境，本次不自动执行云端操作。
+5. 部署前在目标 D1 执行 0010 及此前迁移；0009 新增 video，0010 新增容量扫描状态与告警历史，不重建 user、progress 或考核父表。应用包含每 30 分钟 Cron；部署后检查 Cron 已启用。迁移、secret 和部署都需要显式指向目标环境。
 
 ## 上传与考核
 
@@ -34,9 +34,11 @@
 
 ## 播放与删除
 
-管理员在考核页面读取视频；`GET /api/admin/videos/:id/stream` 每次验证会话与管理员角色，仅播放已提交且 ready 的固定版本。Worker 直接转发流，支持单段 Range、206、Content-Range 与 416，返回 `private, no-store`。不缓存私有视频，不向浏览器返回下载签名或 B2 token。
+管理员在考核页面读取视频；`GET /api/admin/videos/:id/stream` 每次验证会话与管理员角色，仅播放已提交且 ready 的固定版本。支持单段 Range、后缀范围、206、Content-Range 与 416，向浏览器返回 `private, no-store`，不返回下载签名或 B2 token。
 
-管理员填写原因发起删除，D1 原子记录操作者、时间和审计并切为 deleting，立即禁止新的播放。评分不自动删除。已经开始的流和管理员已下载的副本无法追回。
+Worker 内部用 Cache API 缓存 16 MiB 分段，键包含视频 ID、固定 B2 版本和分段序号，TTL 七天。冷请求只读取涉及的分段，最多会为很小的 Range 多读一个完整分段；完整播放最多七段，内存不缓冲整个视频。B2 的 206 经范围／长度核验后保存为内部 200 分段，避免 Cache API 不允许保存 206 的限制。缓存读取或写入失败仍可从源站播放。
+
+管理员填写原因发起删除，D1 原子记录操作者、时间和审计并切为 deleting，立即禁止新的播放。每次请求及后续分段读取均检查权威状态，命中缓存也不能跳过鉴权；内部缓存地址没有公共读取路由。删除会清理当前数据中心的对应缓存，其他地区残留字节仍不可经网站访问，最多保留到 TTL／驱逐；没有执行全球物理清除。评分不自动删除，已经传出的字节和管理员已下载的副本无法追回。
 
 Cron 每次处理一个对象，以限制请求数量；等待上传链接过期并留出十五分钟缓冲后，调用 B2 Native API 列出并逐个永久删除明确的 fileId，包括历史版本与隐藏标记，再确认清空才标为 deleted。异常进入 delete_failed，下次重试；多版本分批清理，不把隐藏标记当作删除成功。已删除记录保留七天回扫窗口，检查延迟完成的上传；删除记录和审核历史永久保留。
 
@@ -44,10 +46,18 @@ Cron 每次处理一个对象，以限制请求数量；等待上传链接过期
 
 ## 配额和运维
 
-D1 为每次授权预留申报字节数；创建授权时原子检查全站预留量不超过 9 GB，每人最多三个未提交上传。后台显示数量、预留占用、7 GB 预警与清理失败数。确认删除前不释放配额。
+D1 为每次授权预留申报字节数；每人最多三个未提交上传。全站限额采用以下两者的较大值，并在同一条 SQL 中原子检查加上新申请后不超过 9 GB：全部未删除视频的预留量；最近完整 B2 统计加扫描开始后新增／确认的上传及仍在上传的预留量。因此并发上传、旧版本和未登记对象都会参与保护，可能保守地重复计入部分刚完成的上传。确认删除前不释放预留量，实际量等待下一次扫描下降。统计缺失、超过一小时或同步失败时暂缓新授权，线下考核仍可用。
 
-**这不是 B2 账单或实际桶容量统计。** 重用有效 PUT 链接产生的额外版本、未完成上传、桶外部写入不包含在 D1 预留量中。必须同时在 B2 控制台监控实际用量和费用／上传上限，不把预留量视为不会收费的保证。本仓库不硬编码供应商免费额度或价格。
+后台“考核、奖励与视频存储”页面显示 B2 当前文件、历史版本、未完成大文件已上传分片、总量、预留量、有效限额占用和完整同步时间。每半小时自动扫描，管理员可手动同步；分页每次最多六次列表调用，进度存入 D1，后续手动或 Cron 继续，租约避免重复计算。扫描完成才替换统计，异常保留上次结果并显示错误。扫描不是供应商的一致性快照，上传／外部写入会造成时点差异，也不等于费用账单。
+
+扫描复用视频密钥。若它限定 `videos/`，仅统计该前缀并持续提示“桶内其他路径占用未知”，不会称为整个桶容量。要统计整个桶，成对设置 `B2_MONITOR_KEY_ID`、`B2_MONITOR_APPLICATION_KEY`，仅授权目标桶、取消文件前缀限制；需要 `listFiles` 和 `writeFiles`（B2 的 list_parts 要求后者，并非纯只读凭据）。实现只调用读取接口，不自动扩权、不使用 master key。
+
+7 GB 预警、9 GB 暂停上传、统计过期、同步失败、清理失败和受限统计范围会形成管理后台告警。告警状态变化时记录结构化 Worker 日志；D1 保存发生与恢复历史，持续异常不重复新增。没有配置邮件、短信或第三方通知。B2 外部写入、其他桶和账号账单不受本网站配额控制，仍需在供应商控制台设置用量／费用上限；本仓库不硬编码免费额度或价格。
+
+Cache API 按数据中心保存，并非全网共享或保证保留七天；早期驱逐会回源，也未启用 Tiered Cache。不要给私有播放 API 设置会绕过 Worker 的公开 Cache Everything 规则。缓存使用现有 Worker，没有自动升级付费套餐；大规模视频分发需复核 Cloudflare 适用服务条款与账户套餐。
 
 真实联调须验证：精确 CORS、签名及 Content-Length、真实手机文件上传、对象版本固定、MP4/WebM/QuickTime 播放兼容、拖动进度条、权限撤销、全版本永久删除、Cron 重试与实际容量。本地回归测试使用真实 Worker/D1 和模拟 B2 响应；另已完成真实 B2 存储接口检查及正式域名上传 CORS 检查，用户已反馈跑通一次线上流程；真实手机型号、退回重交及删除等分支的具体覆盖仍需补充记录。
 
 参考：[B2 S3 API](https://www.backblaze.com/docs/en/cloud-storage-call-the-s3-compatible-api)、[B2 CORS](https://www.backblaze.com/docs/cloud-storage-cross-origin-resource-sharing-rules)、[私有 B2 经 Workers 提供](https://www.backblaze.com/docs/cloud-storage-deliver-private-backblaze-b2-content-through-cloudflare-cdn)、[版本列表](https://www.backblaze.com/apidocs/b2-list-file-versions)、[永久删除版本](https://www.backblaze.com/apidocs/b2-delete-file-version)、[Workers 流式响应](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/)。
+
+缓存与统计参考：[Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)、[TTL 与实际保留](https://developers.cloudflare.com/cache/concepts/retention-vs-freshness/)、[未完成大文件](https://www.backblaze.com/apidocs/b2-list-unfinished-large-files)、[上传分片](https://www.backblaze.com/apidocs/b2-list-parts)、[授权范围](https://www.backblaze.com/apidocs/b2-authorize-account)。

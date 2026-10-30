@@ -10,3 +10,8 @@
 # B2_KEY_ID=your-application-key-id
 # B2_APPLICATION_KEY=your-application-key
 # 配置说明和 CORS 见 docs/VIDEOS.md。不要将桶设为 Public。
+# 可选：容量监控专用密钥，必须成对配置；无前缀限制时可统计整个桶。
+# listFiles + writeFiles（B2 list_parts 要求 writeFiles），只给目标桶，不使用 master key。
+# 未设置时复用视频密钥并明确显示其可见范围。
+# B2_MONITOR_KEY_ID=your-monitor-key-id
+# B2_MONITOR_APPLICATION_KEY=your-monitor-application-key

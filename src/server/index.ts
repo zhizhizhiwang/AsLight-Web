@@ -10,6 +10,7 @@ import { content } from './content.ts';
 import { MAX_COURSE_BYTES } from '../shared/editor.ts';
 import type { Bindings } from './bindings.ts';
 import { videos, cleanupVideos } from './videos.ts';
+import { scanStorage, refreshStorageAlerts } from './storage-monitor.ts';
 
 export const app = new Hono<{ Bindings: Bindings }>()
   .use('*', secureHeaders({ referrerPolicy: 'no-referrer' }))
@@ -70,6 +71,12 @@ export type AppType = typeof app;
 export default {
   fetch: app.fetch,
   scheduled(_event: ScheduledController, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(cleanupVideos(env));
+    ctx.waitUntil(
+      (async () => {
+        await cleanupVideos(env);
+        await scanStorage(env);
+        await refreshStorageAlerts(env);
+      })(),
+    );
   },
 };

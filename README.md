@@ -64,7 +64,7 @@ docs/                产品规则、架构、账号、开发、部署、路线�
 - [开发与验证](docs/DEVELOPMENT.md)：命令、检查、测试和变更流程。
 - [部署与数据](docs/DEPLOYMENT.md)：Cloudflare、环境隔离、备份和体积预算。
 - [实施路线](docs/ROADMAP.md)：已实现项和未来工作。
-- [视频存储与配置](docs/VIDEOS.md)：B2 私有桶、直传、播放、删除、配额与联调边界。
+- [视频存储与配置](docs/VIDEOS.md)：B2 私有桶、直传、鉴权后缓存、删除、实际容量及告警。
 - [课程展示数据](docs/CONTENT.md)：图文、图片引用、背景与装饰协议及当前存储边界。
 - [架构决策 0001](docs/adr/0001-single-repo-react-hono.md)：为何采用这套组合。
 

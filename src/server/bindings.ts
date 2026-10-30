@@ -7,4 +7,6 @@ export type Bindings = Env & {
   B2_BUCKET_ID?: string;
   B2_BUCKET_NAME?: string;
   B2_S3_ENDPOINT?: string;
+  B2_MONITOR_KEY_ID?: string;
+  B2_MONITOR_APPLICATION_KEY?: string;
 };

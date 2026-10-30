@@ -5,7 +5,9 @@ import { AccessError } from './access.ts';
 import { consumeLimit } from './security.ts';
 import { loadMap, ownProgress } from './course.ts';
 import { b2Config, b2Enabled, signedObject, purgeObject } from './b2.ts';
-import { createVideoInput, STORAGE_STOP_BYTES, STORAGE_WARNING_BYTES } from '../shared/videos.ts';
+import { createVideoInput, STORAGE_STOP_BYTES } from '../shared/videos.ts';
+import { cachedVideo, evictVideo } from './video-cache.ts';
+import { scanStorage, storageSummary, refreshStorageAlerts } from './storage-monitor.ts';
 import type { Bindings } from './bindings.ts';
 import type { AdminContext } from './admin-context.ts';
 
@@ -77,6 +79,18 @@ export const videos = new Hono<{ Bindings: Bindings; Variables: { owner: string 
     const state = (await ownProgress(c.env, owner, map)).find((p) => p.questId === input.questId);
     if (!state?.unlocked || !['in_progress', 'needs_revision'].includes(state.learningStatus))
       throw new AccessError('STALE_STATE', '请先开始已解锁任务，或等待当前考核完成。', 409);
+    let storage = await storageSummary(c.env);
+    if (storage.stale) {
+      await scanStorage(c.env);
+      storage = await storageSummary(c.env);
+    }
+    if (storage.stale || storage.error || !storage.actual)
+      throw new AccessError(
+        'STORAGE_UNAVAILABLE',
+        '正在核对视频容量，请稍后重试或联系管理员。',
+        503,
+      );
+    const actual = storage.actual;
     const id = crypto.randomUUID(),
       key = `videos/${owner}/${id}`;
     const expiresAt = now + 300_000;
@@ -90,7 +104,9 @@ export const videos = new Hono<{ Bindings: Bindings; Variables: { owner: string 
     const result = await c.env.DB.prepare(
       `INSERT INTO video (id,user_id,quest_id,object_key,size,mime_type,created_at,expires_at)
       SELECT ?,?,?,?,?,?,?,? WHERE
-      (SELECT COALESCE(SUM(size),0) FROM video WHERE status!='deleted')+?<=?
+      MAX((SELECT COALESCE(SUM(size),0) FROM video WHERE status!='deleted'),
+        ?+(SELECT COALESCE(SUM(size),0) FROM video WHERE status!='deleted' AND (created_at>=? OR uploaded_at>=? OR status='uploading')))+?<=?
+      AND EXISTS(SELECT 1 FROM storage_monitor WHERE id='b2' AND json_extract(snapshot,'$.completedAt')=? AND error IS NULL)
       AND (SELECT COUNT(*) FROM video WHERE user_id=? AND attempt_id IS NULL AND status IN ('uploading','ready'))<3
       AND EXISTS(SELECT 1 FROM progress WHERE user_id=? AND quest_id=? AND version=? AND learning_status IN ('in_progress','needs_revision'))
       AND EXISTS(SELECT 1 FROM course_revision WHERE id='current' AND revision=?)`,
@@ -104,8 +120,12 @@ export const videos = new Hono<{ Bindings: Bindings; Variables: { owner: string 
         input.mimeType,
         now,
         expiresAt,
+        actual.currentBytes + actual.historicalBytes + actual.unfinishedBytes,
+        actual.startedAt,
+        actual.startedAt,
         input.size,
         STORAGE_STOP_BYTES,
+        actual.completedAt,
         owner,
         owner,
         input.questId,
@@ -204,6 +224,8 @@ export async function deleteVideo(env: Bindings, id: string, actor: string, reas
       WHERE id=? AND status IN ('uploading','ready')`,
     ).bind(now, actor, reason, id),
   ]);
+  if (v.object_version)
+    await evictVideo(env, { ...v, object_version: v.object_version }).catch(() => undefined);
 }
 export async function cleanupVideos(env: Bindings, fetcher: typeof fetch = fetch) {
   if (!b2Enabled(env)) return;
@@ -243,46 +265,28 @@ export const videoAdmin = new Hono<AdminContext>()
     c.json(await listVideos(c.env, c.req.param('id'), c.req.param('questId'))),
   )
   .get('/storage', async (c) => {
-    const row = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(size),0) AS reservedBytes,COUNT(*) AS count,
-      COALESCE(SUM(status='delete_failed'),0) AS failedDeletes FROM video WHERE status!='deleted'`,
-    ).first();
-    return c.json({ ...row, warningBytes: STORAGE_WARNING_BYTES, stopBytes: STORAGE_STOP_BYTES });
+    await refreshStorageAlerts(c.env);
+    return c.json(await storageSummary(c.env));
+  })
+  .post('/storage/refresh', async (c) => {
+    if (!z.strictObject({}).safeParse(await c.req.json().catch(() => null)).success)
+      throw new AccessError('INVALID_INPUT', '请求内容无效。', 400);
+    if (!(await consumeLimit(c.env, 'b2:scan', { window: 60, max: 2 })).allowed)
+      throw new AccessError('TOO_MANY_REQUESTS', '请稍后再同步。', 429);
+    await scanStorage(c.env, true);
+    await refreshStorageAlerts(c.env);
+    return c.json(await storageSummary(c.env));
   })
   .get('/:id/stream', async (c) => {
     const v = await getVideo(c.env, c.req.param('id'));
     if (v.status !== 'ready' || !v.attempt_id || !v.object_version)
       throw new AccessError('NOT_FOUND', '视频已删除或尚未提交。', 404);
-    const range = c.req.header('Range');
-    if (range && !/^bytes=(\d+-\d*|-\d+)$/.test(range)) return new Response(null, { status: 416 });
-    const upstream = await fetch(
-      await signedObject(c.env, v.object_key, 'GET', {
-        version: v.object_version,
-        ...(range ? { headers: { Range: range } } : {}),
-      }),
-      { redirect: 'manual' },
+    return cachedVideo(
+      c.env,
+      { ...v, object_version: v.object_version },
+      c.req.header('Range'),
+      c.executionCtx,
     );
-    if (![200, 206, 416].includes(upstream.status)) {
-      await upstream.body?.cancel();
-      throw new AccessError('STORAGE_UNAVAILABLE', '视频暂时无法播放。', 503);
-    }
-    // Recheck after network I/O so a concurrent delete revokes pending fetches.
-    if ((await getVideo(c.env, v.id)).status !== 'ready') {
-      await upstream.body?.cancel();
-      throw new AccessError('NOT_FOUND', '视频已停止播放。', 404);
-    }
-    const headers = new Headers({
-      'Cache-Control': 'private, no-store',
-      'X-Content-Type-Options': 'nosniff',
-      'Content-Type': v.mime_type,
-      'Content-Disposition': 'inline',
-      'Accept-Ranges': 'bytes',
-    });
-    for (const name of ['Content-Length', 'Content-Range']) {
-      const value = upstream.headers.get(name);
-      if (value) headers.set(name, value);
-    }
-    return new Response(upstream.body, { status: upstream.status, headers });
   })
   .post('/:id/delete', async (c) => {
     const parsed = z

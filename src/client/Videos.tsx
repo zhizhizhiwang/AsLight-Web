@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 import { Button, Field, Input, Textarea } from './ui.tsx';
 import { requestJson } from './auth.ts';
 import { requestId } from './learning-request.ts';
 import type { PendingOperation } from './learning-request.ts';
-import {
-  MAX_VIDEO_BYTES,
-  uploadTicketSchema,
-  videoListSchema,
-  storageSummarySchema,
-} from '../shared/videos.ts';
+import { MAX_VIDEO_BYTES, uploadTicketSchema, videoListSchema } from '../shared/videos.ts';
 import type { VideoRecord } from '../shared/videos.ts';
 
 const labels = {
@@ -172,23 +166,18 @@ export function AdminVideos({
     [error, setError] = useState(''),
     [retry, setRetry] = useState(0),
     [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false),
-    [summary, setSummary] = useState<z.infer<typeof storageSummarySchema> | null>(null);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    void Promise.all([
-      requestJson(
-        `/api/admin/videos/members/${encodeURIComponent(userId)}/quests/${encodeURIComponent(questId)}`,
-        undefined,
-        controller.signal,
-      ),
-      requestJson('/api/admin/videos/storage', undefined, controller.signal),
-    ])
-      .then(([list, storage]) => {
+    void requestJson(
+      `/api/admin/videos/members/${encodeURIComponent(userId)}/quests/${encodeURIComponent(questId)}`,
+      undefined,
+      controller.signal,
+    )
+      .then((list) => {
         if (controller.signal.aborted) return;
         setVideos(videoListSchema.parse(list).videos);
-        setSummary(storageSummarySchema.parse(storage));
         setError('');
       })
       .catch(() => {
@@ -202,13 +191,6 @@ export function AdminVideos({
   return (
     <section className="form-stack" aria-label="考核视频">
       <h3>考核视频</h3>
-      {summary && (
-        <p>
-          视频预留占用 {(summary.reservedBytes / 1e9).toFixed(2)} GB · {summary.count} 个文件
-          {summary.reservedBytes >= summary.warningBytes ? ' · 容量接近上限，请及时清理' : ''}
-          {summary.failedDeletes > 0 ? ` · ${summary.failedDeletes} 个文件等待重试清理` : ''}
-        </p>
-      )}
       <Button disabled={busy} onClick={() => setRetry((n) => n + 1)}>
         刷新视频记录
       </Button>

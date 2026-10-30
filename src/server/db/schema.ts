@@ -10,6 +10,31 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
+export const storageMonitor = sqliteTable('storage_monitor', {
+  id: text('id').primaryKey(),
+  snapshot: text('snapshot'),
+  progress: text('progress'),
+  lease: text('lease'),
+  leaseUntil: integer('lease_until').notNull().default(0),
+  attemptedAt: integer('attempted_at').notNull().default(0),
+  error: text('error'),
+});
+export const storageAlert = sqliteTable(
+  'storage_alert',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').notNull(),
+    message: text('message').notNull(),
+    openedAt: integer('opened_at').notNull(),
+    resolvedAt: integer('resolved_at'),
+  },
+  (t) => [
+    uniqueIndex('storage_alert_open')
+      .on(t.kind)
+      .where(sql`${t.resolvedAt} IS NULL`),
+  ],
+);
+
 export const video = sqliteTable(
   'video',
   {

@@ -71,6 +71,13 @@
       "when": 1793380734121,
       "tag": "0009_b2_videos",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793386228980,
+      "tag": "0010_storage_monitor",
+      "breakpoints": true
     }
   ]
 }

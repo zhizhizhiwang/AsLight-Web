@@ -1,6 +1,7 @@
 import { Button, Input, Select, Textarea, Field, Panel, ButtonLink } from './ui.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { AdminVideos } from './Videos.tsx';
+import { StoragePanel } from './StoragePanel.tsx';
 import type { FormEvent } from 'react';
 import { z } from 'zod';
 import { authClient, requestJson } from './auth.ts';
@@ -288,6 +289,7 @@ export function AdminLearning() {
   return (
     <div className="admin-page">
       <ButtonLink to="/admin">返回成员管理</ButtonLink>
+      <StoragePanel />
       <Panel className="form-stack">
         <h2>考核与奖励</h2>
         <Field>

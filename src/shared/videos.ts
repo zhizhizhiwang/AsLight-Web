@@ -28,10 +28,33 @@ export const videoListSchema = z.object({
   videos: z.array(videoRecordSchema),
 });
 export type VideoRecord = z.infer<typeof videoRecordSchema>;
+export const storageSnapshotSchema = z.object({
+  startedAt: z.number(),
+  completedAt: z.number(),
+  prefix: z.string().nullable(),
+  currentBytes: z.number(),
+  historicalBytes: z.number(),
+  unfinishedBytes: z.number(),
+  versions: z.number(),
+  unfinishedFiles: z.number(),
+});
 export const storageSummarySchema = z.object({
   reservedBytes: z.number(),
   count: z.number(),
   failedDeletes: z.number(),
   warningBytes: z.number(),
   stopBytes: z.number(),
+  actual: storageSnapshotSchema.nullable(),
+  effectiveBytes: z.number(),
+  stale: z.boolean(),
+  scanning: z.boolean(),
+  error: z.string().nullable(),
+  alerts: z.array(
+    z.object({
+      kind: z.string(),
+      message: z.string(),
+      openedAt: z.number(),
+      resolvedAt: z.number().nullable(),
+    }),
+  ),
 });

@@ -59,7 +59,10 @@ export async function signedObject(
 const authorizationSchema = z.object({
   authorizationToken: z.string(),
   apiInfo: z.object({
-    storageApi: z.object({ apiUrl: z.url() }),
+    storageApi: z.object({
+      apiUrl: z.url(),
+      allowed: z.object({ namePrefix: z.string().nullable() }).optional(),
+    }),
   }),
 });
 const versionsSchema = z.object({
@@ -70,11 +73,14 @@ const versionsSchema = z.object({
 
 // Native API avoids XML and deletes explicit versions, including hide markers.
 // Bounded batches resume safely on the next scheduled run.
-export async function purgeObject(env: Bindings, key: string, fetcher: typeof fetch = fetch) {
+export async function nativeB2(env: Bindings, fetcher: typeof fetch = fetch, monitor = false) {
   const config = b2Config(env);
   const res = await fetcher('https://api.backblazeb2.com/b2api/v4/b2_authorize_account', {
-    headers: { Authorization: `Basic ${btoa(`${config.keyId}:${config.key}`)}` },
+    headers: {
+      Authorization: `Basic ${btoa(`${monitor && env.B2_MONITOR_KEY_ID ? env.B2_MONITOR_KEY_ID : config.keyId}:${monitor && env.B2_MONITOR_APPLICATION_KEY ? env.B2_MONITOR_APPLICATION_KEY : config.key}`)}`,
+    },
     redirect: 'manual',
+    signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error('B2 authorization failed.');
   const auth = authorizationSchema.parse(await res.json());
@@ -87,7 +93,17 @@ export async function purgeObject(env: Bindings, key: string, fetcher: typeof fe
       headers: { Authorization: auth.authorizationToken, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       redirect: 'manual',
+      signal: AbortSignal.timeout(10000),
     });
+  return {
+    call,
+    prefix: auth.apiInfo.storageApi.allowed?.namePrefix ?? null,
+    scopeKnown: !!auth.apiInfo.storageApi.allowed,
+  };
+}
+export async function purgeObject(env: Bindings, key: string, fetcher: typeof fetch = fetch) {
+  const config = b2Config(env);
+  const { call } = await nativeB2(env, fetcher);
   for (let batch = 0; batch < 2; batch++) {
     const list = await call('b2_list_file_versions', {
       bucketId: config.bucketId,

@@ -27,26 +27,72 @@ test(
       .map((name) => ({ type: 'ESModule', path: path.resolve('dist/aslight/assets', name) }));
     const objects = new Map();
     let failDelete = false;
+    let failScan = false,
+      pageSize = 1000,
+      monitorPrefix = 'videos/';
+    let unfinished = [];
+    let partPages = [];
+    let authorizationGate, onAuthorize;
     const calls = [];
     const outbound = async (request) => {
       const url = new URL(request.url);
       calls.push({ method: request.method, url, headers: request.headers });
-      if (url.hostname === 'api.backblazeb2.com')
+      if (url.hostname === 'api.backblazeb2.com') {
+        onAuthorize?.();
+        if (authorizationGate) await authorizationGate;
         return Response.json({
           authorizationToken: 'test-token',
-          apiInfo: { storageApi: { apiUrl: 'https://api001.backblazeb2.com' } },
+          apiInfo: {
+            storageApi: {
+              apiUrl: 'https://api001.backblazeb2.com',
+              allowed: { namePrefix: monitorPrefix },
+            },
+          },
         });
+      }
       if (url.hostname === 'api001.backblazeb2.com') {
         const body = await request.json();
-        if (url.pathname.endsWith('b2_list_file_versions'))
+        if (failScan && url.pathname.includes('b2_list_')) return new Response('', { status: 503 });
+        if (url.pathname.endsWith('b2_list_file_versions')) {
+          const files = [...objects]
+            .filter(([key]) => key.startsWith(body.prefix))
+            .sort(([a], [b]) => a.localeCompare(b))
+            .flatMap(([key, object]) =>
+              object.versions.map((fileId) => ({
+                fileId,
+                fileName: key,
+                contentLength: fileId.startsWith('hide') ? 0 : object.size,
+                action: fileId.startsWith('hide') ? 'hide' : 'upload',
+              })),
+            );
+          const start = body.startFileName
+            ? files.findIndex(
+                (f) => f.fileName === body.startFileName && f.fileId === body.startFileId,
+              )
+            : 0;
+          const limit = Math.min(body.maxFileCount, pageSize);
+          const next = files[start + limit];
           return Response.json({
-            files: [...(objects.get(body.prefix)?.versions ?? [])].map((fileId) => ({
-              fileId,
-              fileName: body.prefix,
-            })),
-            nextFileName: null,
-            nextFileId: null,
+            files: files.slice(start, start + limit),
+            nextFileName: next?.fileName ?? null,
+            nextFileId: next?.fileId ?? null,
           });
+        }
+        if (url.pathname.endsWith('b2_list_unfinished_large_files')) {
+          assert.equal(body.namePrefix, monitorPrefix ?? '');
+          const index = body.startFileId ? unfinished.indexOf(body.startFileId) : 0;
+          return Response.json({
+            files: unfinished.slice(index, index + 1).map((fileId) => ({ fileId })),
+            nextFileId: unfinished[index + 1] ?? null,
+          });
+        }
+        if (url.pathname.endsWith('b2_list_parts')) {
+          const index = (body.startPartNumber ?? 1) - 1;
+          return Response.json({
+            parts: [{ contentLength: partPages[index] }],
+            nextPartNumber: index + 1 < partPages.length ? index + 2 : null,
+          });
+        }
         if (failDelete) return new Response('', { status: 503 });
         const object = objects.get(body.fileName);
         if (object) object.versions = object.versions.filter((v) => v !== body.fileId);
@@ -75,11 +121,17 @@ test(
           new Uint8Array([0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0]),
           { status: 206, headers: { 'Content-Range': `bytes 0-15/${object.size}` } },
         );
-      return new Response('video-bytes', {
+      const all = new Uint8Array(object.size).fill(
+        url.searchParams.get('versionId') === 'v1' ? 65 : 66,
+      );
+      const bounds = range ? /^bytes=(\d+)-(\d+)$/.exec(range) : null;
+      const start = bounds ? Number(bounds[1]) : 0,
+        end = bounds ? Number(bounds[2]) : object.size - 1;
+      return new Response(all.subarray(start, end + 1), {
         status: range ? 206 : 200,
         headers: {
-          'Content-Length': '11',
-          ...(range ? { 'Content-Range': `bytes 0-10/${object.size}` } : {}),
+          'Content-Length': String(end - start + 1),
+          ...(range ? { 'Content-Range': 'bytes ' + start + '-' + end + '/' + object.size } : {}),
         },
       });
     };
@@ -231,8 +283,50 @@ test(
     assert.equal(stream.status, 206);
     assert.equal(stream.headers.get('Content-Range'), 'bytes 0-10/1000');
     assert.equal(stream.headers.get('Cache-Control'), 'private, no-store');
-    assert.equal(await stream.text(), 'video-bytes');
+    assert.equal(await stream.text(), 'A'.repeat(11));
     assert.equal(calls.at(-1).url.searchParams.get('versionId'), 'v1');
+    const originReads = () =>
+      calls.filter((c) => c.method === 'GET' && c.url.hostname.startsWith('s3.')).length;
+    const coldReads = originReads();
+    for (const [range, length] of [
+      ['bytes=991-', 9],
+      ['bytes=-5', 5],
+      [undefined, 1000],
+    ]) {
+      const warm = await mf.dispatchFetch(`${origin}/api/admin/videos/${ticket.id}/stream`, {
+        headers: { Cookie: admin, ...(range ? { Range: range } : {}) },
+      });
+      assert.equal(warm.status, range ? 206 : 200);
+      assert.equal(await warm.text(), 'A'.repeat(length));
+    }
+    assert.equal(originReads(), coldReads, 'warm full and range reads never connect to B2');
+    await json(`/api/admin/videos/${ticket.id}/stream`, null, undefined, 401);
+    await json(`/api/admin/videos/${ticket.id}/stream`, other, undefined, 403);
+    await json(`/api/_video-cache/${ticket.id}/v1/0`, admin, undefined, 404);
+    assert.equal(originReads(), coldReads, 'denied requests never consult B2');
+    // A different version and a cross-chunk range cannot reuse old bytes.
+    objects.get(videoKey).size = 16 * 1024 * 1024 + 17;
+    await db
+      .prepare('UPDATE video SET object_version=?,size=? WHERE id=?')
+      .bind('v2', objects.get(videoKey).size, ticket.id)
+      .run();
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const boundary = await mf.dispatchFetch(`${origin}/api/admin/videos/${ticket.id}/stream`, {
+        headers: { Cookie: admin, Range: 'bytes=16777214-16777219' },
+      });
+      assert.equal(boundary.status, 206);
+      assert.equal(await boundary.text(), 'B'.repeat(6));
+    }
+    assert.equal(
+      originReads(),
+      coldReads + 2,
+      'two chunks are fetched once and version keys are isolated',
+    );
+    objects.get(videoKey).size = 1000;
+    await db
+      .prepare('UPDATE video SET object_version=?,size=1000 WHERE id=?')
+      .bind('v1', ticket.id)
+      .run();
     assert.equal(
       (
         await mf.dispatchFetch(`${origin}/api/admin/videos/${ticket.id}/stream`, {
@@ -241,6 +335,13 @@ test(
       ).status,
       416,
     );
+    for (const range of ['bytes=-0', 'bytes=1000-', 'bytes=20-10', 'bytes=9007199254740992-']) {
+      const invalid = await mf.dispatchFetch(`${origin}/api/admin/videos/${ticket.id}/stream`, {
+        headers: { Cookie: admin, Range: range },
+      });
+      assert.equal(invalid.status, 416);
+      assert.equal(invalid.headers.get('Content-Range'), 'bytes */1000');
+    }
     const beforeReview = await json(`/api/member/quests/${questId}/learning`, member);
     await json(`/api/admin/learning/members/${a.id}/quests/${questId}/review`, admin, {
       requestId: randomUUID(),
@@ -342,6 +443,115 @@ test(
       'storage stop line is atomic under concurrent reservations',
     );
     await Promise.all(capacity.map((r) => r.arrayBuffer()));
+    await json('/api/admin/videos/storage', other, undefined, 403);
+    await json('/api/admin/videos/storage/refresh', other, {}, 403);
+    assert.equal(
+      (await request('/api/admin/videos/storage/refresh', admin, {}, 'https://untrusted.example'))
+        .status,
+      403,
+    );
+    // Actual storage includes objects that have no D1 reservation, old versions,
+    // hidden files and uploaded parts. Force small pages to cross checkpoints.
+    await db.prepare("UPDATE video SET status='deleted'").run();
+    objects.clear();
+    objects.set('videos/a-hidden', { size: 100, versions: ['hide-marker', 'old'] });
+    objects.set('videos/b-live', { size: 200, versions: ['new', 'old2'] });
+    objects.set('outside/not-visible', { size: 99999999, versions: ['outside'] });
+    pageSize = 1;
+    unfinished = ['u1', 'u2'];
+    partPages = [10, 20];
+    const refresh = async () => {
+      await db.prepare('DELETE FROM throttle').run();
+      return json('/api/admin/videos/storage/refresh', admin, {});
+    };
+    const partial = await refresh();
+    assert.equal(partial.scanning, true);
+    const checkpoint = await db
+      .prepare("SELECT progress FROM storage_monitor WHERE id='b2'")
+      .first();
+    assert.ok(checkpoint.progress);
+    let actualStats = await refresh();
+    assert.equal(actualStats.scanning, false);
+    assert.equal(actualStats.reservedBytes, 0);
+    assert.equal(actualStats.actual.currentBytes, 200);
+    assert.equal(actualStats.actual.historicalBytes, 300);
+    assert.equal(actualStats.actual.unfinishedBytes, 60);
+    assert.equal(actualStats.actual.unfinishedFiles, 2);
+    assert.equal(actualStats.effectiveBytes, 560);
+    assert.equal(actualStats.actual.prefix, 'videos/');
+    const known = actualStats.actual;
+    failScan = true;
+    actualStats = await refresh();
+    assert.deepEqual(actualStats.actual, known, 'failed scans preserve last complete totals');
+    assert.ok(actualStats.error);
+    assert.ok(actualStats.alerts.some((a) => a.kind === 'sync' && a.resolvedAt === null));
+    await json('/api/videos', member, createBody, 503);
+    failScan = false;
+    pageSize = 1000;
+    unfinished = [];
+    objects.clear();
+    objects.set('videos/orphan', { size: 4000000000, versions: ['new', 'old'] });
+    actualStats = await refresh();
+    assert.equal(actualStats.effectiveBytes, 8000000000);
+    assert.ok(actualStats.alerts.some((a) => a.kind === 'capacity' && a.resolvedAt === null));
+    assert.ok(actualStats.alerts.some((a) => a.kind === 'sync' && a.resolvedAt !== null));
+    const openCount = actualStats.alerts.filter((a) => a.resolvedAt === null).length;
+    actualStats = await json('/api/admin/videos/storage', admin);
+    assert.equal(
+      actualStats.alerts.filter((a) => a.resolvedAt === null).length,
+      openCount,
+      'alerts do not duplicate on refresh',
+    );
+    objects.get('videos/orphan').size = 5000000000;
+    actualStats = await refresh();
+    assert.equal(actualStats.effectiveBytes, 10000000000);
+    await json('/api/videos', member, createBody, 409);
+    objects.clear();
+    monitorPrefix = null;
+    objects.set('outside/included', { size: 30, versions: ['new'] });
+    actualStats = await refresh();
+    assert.equal(actualStats.actual.prefix, null);
+    assert.equal(actualStats.actual.currentBytes, 30);
+    assert.ok(actualStats.alerts.some((a) => a.kind === 'scope' && a.resolvedAt !== null));
+    assert.ok(actualStats.alerts.some((a) => a.kind === 'capacity' && a.resolvedAt !== null));
+    await db
+      .prepare(
+        "UPDATE storage_monitor SET snapshot=json_set(snapshot,'$.startedAt',0,'$.completedAt',0),attempted_at=0 WHERE id='b2'",
+      )
+      .run();
+    failScan = true;
+    await json('/api/videos', member, createBody, 503);
+    actualStats = await json('/api/admin/videos/storage', admin);
+    assert.equal(actualStats.stale, true);
+    assert.equal(actualStats.actual.currentBytes, 30, 'stale failures never claim an empty bucket');
+    failScan = false;
+    actualStats = await refresh();
+    // Hold one real scan in flight. A concurrent manual trigger reads the old
+    // snapshot and cannot acquire its lease or duplicate upstream calls.
+    await db.prepare('DELETE FROM throttle').run();
+    let releaseAuthorization;
+    authorizationGate = new Promise((resolve) => {
+      releaseAuthorization = resolve;
+    });
+    const entered = new Promise((resolve) => {
+      onAuthorize = resolve;
+    });
+    const firstScan = request('/api/admin/videos/storage/refresh', admin, {});
+    await entered;
+    const authorizations = calls.filter((c) => c.url.hostname === 'api.backblazeb2.com').length;
+    const secondScan = await request('/api/admin/videos/storage/refresh', admin, {});
+    assert.equal(secondScan.status, 200);
+    await secondScan.arrayBuffer();
+    assert.equal(
+      calls.filter((c) => c.url.hostname === 'api.backblazeb2.com').length,
+      authorizations,
+    );
+    releaseAuthorization();
+    authorizationGate = null;
+    onAuthorize = null;
+    const firstResult = await firstScan;
+    assert.equal(firstResult.status, 200);
+    actualStats = await firstResult.json();
     await mf.dispose();
     mf = worker();
     db = await mf.getD1Database('DB');
@@ -349,5 +559,7 @@ test(
       (await db.prepare('SELECT status FROM video WHERE id=?').bind(ticket.id).first()).status,
       'deleted',
     );
+    const persistedStats = await json('/api/admin/videos/storage', admin);
+    assert.deepEqual(persistedStats.actual, actualStats.actual);
   },
 );
