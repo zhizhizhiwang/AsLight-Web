@@ -75,7 +75,9 @@ type Props = {
   onMove: (moves: CanvasMove[]) => boolean;
   onDecorationMove: (moves: CanvasMove[]) => boolean;
   onConnect: (source: string, target: string) => boolean;
-  onDisconnect: (source: string, target: string) => void;
+  onDisconnect: (source: string, target: string) => boolean;
+  feedback: string;
+  onClearFeedback: () => void;
   onDuplicate: (ids: string[]) => void;
   onProperties: () => void;
 };
@@ -191,7 +193,7 @@ function Canvas(props: Props) {
           context: false,
           selected: false,
           crossChapter: q.prerequisites.some((id) => !props.quests.some((q) => q.id === id)),
-          preview: false,
+          preview: true,
           editing: !props.disabled && mode !== 'decoration',
           onSelect: select,
           onNudge: nudge,
@@ -250,6 +252,11 @@ function Canvas(props: Props) {
   }, [context]);
   const selectedTasks = () =>
     current.current.nodes.filter((n) => n.selected && !isDecoration(n)).map((n) => n.id);
+  function changeMode(next: typeof mode) {
+    setMode(next);
+    setSource(null);
+    props.onClearFeedback();
+  }
   function createAtCenter() {
     const rect = root.current?.getBoundingClientRect();
     if (rect)
@@ -264,8 +271,7 @@ function Canvas(props: Props) {
           disabled={props.disabled}
           aria-pressed={mode === 'move'}
           onClick={() => {
-            setMode('move');
-            setSource(null);
+            changeMode('move');
           }}
         >
           平移／移动
@@ -274,8 +280,7 @@ function Canvas(props: Props) {
           disabled={props.disabled}
           aria-pressed={mode === 'select'}
           onClick={() => {
-            setMode('select');
-            setSource(null);
+            changeMode('select');
           }}
         >
           框选
@@ -284,8 +289,7 @@ function Canvas(props: Props) {
           disabled={props.disabled}
           aria-pressed={mode === 'add'}
           onClick={() => {
-            setMode('add');
-            setSource(null);
+            changeMode('add');
           }}
         >
           在画布新增
@@ -297,8 +301,7 @@ function Canvas(props: Props) {
           disabled={props.disabled}
           aria-pressed={mode === 'connect'}
           onClick={() => {
-            setMode(mode === 'connect' ? 'move' : 'connect');
-            setSource(null);
+            changeMode(mode === 'connect' ? 'move' : 'connect');
           }}
         >
           连接前置
@@ -307,8 +310,7 @@ function Canvas(props: Props) {
           disabled={props.disabled || !props.presentation?.decorations?.length}
           aria-pressed={mode === 'decoration'}
           onClick={() => {
-            setMode(mode === 'decoration' ? 'move' : 'decoration');
-            setSource(null);
+            changeMode(mode === 'decoration' ? 'move' : 'decoration');
           }}
         >
           移动装饰
@@ -341,13 +343,21 @@ function Canvas(props: Props) {
           : mode === 'connect'
             ? source
               ? `已选前置「${props.quests.find((q) => q.id === source)?.title ?? '任务'}」，再点击后续任务。`
-              : '依次点击前置任务和后续任务；也可从右侧圆点连到后续任务左侧圆点。'
+              : '依次点击前置任务和后续任务；也可从右侧圆点连到后续任务左侧圆点。主线与支线均可作为前置。'
             : mode === 'select'
               ? '拖出矩形选择任务，拖动任一选中任务可成组移动。'
               : mode === 'decoration'
                 ? '拖动图片或文字装饰，按方向键也可调整；任务暂不接收拖动。'
                 : '拖动任务调整位置，拖动空白处平移；Ctrl／⌘ 可多选。选中任务后用方向键移动，Shift 配合方向键微调。'}
       </p>
+      {props.feedback && (
+        <div className="canvas-feedback form-error" role="alert">
+          <span>{props.feedback}</span>
+          <Button variant="ghost" onClick={props.onClearFeedback}>
+            关闭提示
+          </Button>
+        </div>
+      )}
       <div
         ref={root}
         className="course-editor-canvas"
@@ -356,8 +366,7 @@ function Canvas(props: Props) {
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             setContext(null);
-            setSource(null);
-            setMode('move');
+            changeMode('move');
             root.current?.focus();
           }
         }}
@@ -375,7 +384,8 @@ function Canvas(props: Props) {
           onEdgesChange={onEdgesChange}
           onNodeDragStop={(_event, _node, moved) => commit(moved)}
           onConnect={(connection) => {
-            if (!props.disabled) props.onConnect(connection.source, connection.target);
+            if (!props.disabled && props.onConnect(connection.source, connection.target))
+              setSource(null);
           }}
           onEdgeClick={(_event, edge) =>
             setSelectedEdge({ source: edge.source, target: edge.target })
@@ -434,12 +444,15 @@ function Canvas(props: Props) {
         )}
         {selectedEdge && (
           <div className="canvas-edge-actions">
-            <span>前置关系已选中</span>
+            <span>
+              {props.quests.find((q) => q.id === selectedEdge.source)?.title ?? '前置任务'} →{' '}
+              {props.quests.find((q) => q.id === selectedEdge.target)?.title ?? '后续任务'}
+            </span>
             <Button
               disabled={props.disabled}
               onClick={() => {
-                props.onDisconnect(selectedEdge.source, selectedEdge.target);
-                setSelectedEdge(null);
+                if (props.onDisconnect(selectedEdge.source, selectedEdge.target))
+                  setSelectedEdge(null);
               }}
             >
               取消这条前置关系

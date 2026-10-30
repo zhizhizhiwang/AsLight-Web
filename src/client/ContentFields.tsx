@@ -70,11 +70,13 @@ export function BlocksEditor({
   onChange,
   assets,
   label,
+  disabled = false,
 }: {
   value: ContentBlock[];
   onChange: (blocks: ContentBlock[]) => void;
   assets: CourseAsset[];
   label: string;
+  disabled?: boolean;
 }) {
   const update = (index: number, block: ContentBlock) =>
     onChange(value.map((b, i) => (i === index ? block : b)));
@@ -87,7 +89,7 @@ export function BlocksEditor({
     }
   };
   return (
-    <fieldset className="editor-group">
+    <fieldset className="editor-group" disabled={disabled}>
       <legend>{label}</legend>
       {!value.length && <p className="account-note">尚未添加内容。文字由内容人员填写。</p>}
       {value.map((block, index) => (

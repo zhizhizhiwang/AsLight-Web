@@ -36,6 +36,7 @@ export default function ContentEditor({
   const [snapshot, setSnapshot] = useState<EditorSnapshot | null>(null);
   const [document, setDocument] = useState<CourseDocument | null>(null);
   const [error, setError] = useState('');
+  const [canvasFeedback, setCanvasFeedback] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState('');
@@ -98,11 +99,13 @@ export default function ContentEditor({
     document && task && snapshot
       ? taskDeletionReason(document, task.id, snapshot.protectedQuestIds)
       : null;
+  const learningRulesLocked = Boolean(task && snapshot?.protectedQuestIds.includes(task.id));
   const canvasQuests = useMemo(
     () => document?.quests.filter((q) => q.chapterId === chapter?.id && !q.archived) ?? [],
     [document?.quests, chapter?.id],
   );
   const choose = (chapterId: string, questId?: string) => {
+    setCanvasFeedback('');
     setParams({ chapter: chapterId, ...(questId ? { quest: questId } : {}) });
     setInspectorOpen(Boolean(questId));
     setConfirmDelete(null);
@@ -126,7 +129,7 @@ export default function ContentEditor({
       archived: false,
     };
     if (Math.abs(next.position.x) > 100000 || Math.abs(next.position.y) > 100000) {
-      setError('新增位置超出画布范围，请返回任务附近。');
+      setCanvasFeedback('新增位置超出画布范围，请返回任务附近。');
       return;
     }
     setDocument({ ...document, quests: [...document.quests, next] });
@@ -161,22 +164,28 @@ export default function ContentEditor({
         });
       } else setDocument(next);
       setError('');
+      setCanvasFeedback('');
       setMessage('');
       return true;
     } catch (error) {
-      setError(error instanceof Error ? error.message : '无法移动。');
+      setCanvasFeedback(error instanceof Error ? error.message : '无法移动。');
       return false;
     }
   }
   function connect(source: string, target: string) {
     if (!document || busy) return false;
+    if (snapshot?.protectedQuestIds.includes(target)) {
+      setCanvasFeedback('后续任务已有学习记录，不能直接修改前置；请新增任务或使用归档保留旧记录。');
+      return false;
+    }
     try {
       setDocument(connectCourseTasks(document, source, target));
       setError('');
+      setCanvasFeedback('');
       setMessage('');
       return true;
     } catch (error) {
-      setError(error instanceof Error ? error.message : '无法建立前置。');
+      setCanvasFeedback(error instanceof Error ? error.message : '无法建立前置。');
       return false;
     }
   }
@@ -472,6 +481,8 @@ export default function ContentEditor({
                 selectedId={task?.id ?? null}
                 focusToken={focusToken}
                 disabled={busy || chapter.archived}
+                feedback={canvasFeedback}
+                onClearFeedback={() => setCanvasFeedback('')}
                 onSelect={(id) => {
                   setConfirmDelete(null);
                   setParams({ chapter: chapter.id, ...(id ? { quest: id } : {}) });
@@ -482,6 +493,10 @@ export default function ContentEditor({
                 onDecorationMove={(moves) => moveItems(moves, true)}
                 onConnect={connect}
                 onDisconnect={(source, target) => {
+                  if (snapshot.protectedQuestIds.includes(target)) {
+                    setCanvasFeedback('此任务已有学习记录，不能直接修改前置。');
+                    return false;
+                  }
                   setDocument({
                     ...document,
                     quests: document.quests.map((q) =>
@@ -491,7 +506,9 @@ export default function ContentEditor({
                     ),
                   });
                   setError('');
+                  setCanvasFeedback('');
                   setMessage('');
+                  return true;
                 }}
                 onDuplicate={(ids) => {
                   try {
@@ -591,6 +608,9 @@ export default function ContentEditor({
                           }
                         />
                       </div>
+                      <p className="account-note">
+                        主线／支线用于路线分类，能否开始取决于前置关系；支线也可以成为主线的必经前置。领取奖励不影响解锁。
+                      </p>
                       <AssetField
                         label="任务图片"
                         value={task.imageAssetId}
@@ -600,10 +620,17 @@ export default function ContentEditor({
                           changeTask(imageAssetId ? { ...rest, imageAssetId } : rest);
                         }}
                       />
-                      <fieldset className="editor-group">
+                      <fieldset className="editor-group" disabled={learningRulesLocked}>
                         <legend>前置任务</legend>
                         <p className="account-note">
-                          已有学习记录时，前置与考核要求需要通过新增任务调整。
+                          {learningRulesLocked
+                            ? '此任务已有学习记录，前置与考核要求已锁定；调整要求请新增任务。'
+                            : '连线方向为“前置任务 → 当前任务”。前置是否必经由“全部／任意”条件决定，与主支线类型无关。'}
+                        </p>
+                        <p className="editor-unlock-summary" role="status">
+                          {task.prerequisites.length
+                            ? `开始「${task.title}」前，需通过${task.prerequisiteMode === 'all' ? `全部 ${task.prerequisites.length} 项前置` : `${task.prerequisites.length} 项前置中的任意一项`}。`
+                            : '当前没有前置，可以直接开始学习。'}
                         </p>
                         <Field>
                           通过条件
@@ -682,6 +709,7 @@ export default function ContentEditor({
                       />
                       <BlocksEditor
                         label="考核内容"
+                        disabled={learningRulesLocked}
                         value={task.assessmentContent ?? []}
                         assets={snapshot.assets}
                         onChange={(assessmentContent) => changeTask({ ...task, assessmentContent })}
