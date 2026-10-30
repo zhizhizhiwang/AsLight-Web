@@ -1,66 +1,257 @@
-import { Background, Controls, MarkerType, Position, ReactFlow } from '@xyflow/react';
-import type { Edge, Node } from '@xyflow/react';
+import {
+  Background,
+  Handle,
+  Position,
+  ReactFlow,
+  Panel as FlowPanel,
+  ViewportPortal,
+  useReactFlow,
+  useViewport,
+} from '@xyflow/react';
+import { useSyncExternalStore } from 'react';
+import type { Edge, Node, NodeProps } from '@xyflow/react';
 import type { Quest } from '../shared/quests.ts';
+import type { ChapterPresentation } from '../shared/content.ts';
+import { CourseImage, QuestArtwork } from './CourseContent.tsx';
+import { Button } from './ui.tsx';
+import { Icon } from './Icon.tsx';
+import type { QuestProgress } from '../shared/progress.ts';
+import { progressLabel, rewardLabel } from './progress.ts';
+import type { QuestFilter } from './App.tsx';
 import '@xyflow/react/dist/style.css';
+
+type QuestNode = Node<
+  {
+    quest: Quest;
+    progress: QuestProgress | undefined;
+    context: boolean;
+    onSelect: (id: string) => void;
+    selected: boolean;
+    crossChapter: boolean;
+    preview: boolean;
+  },
+  'quest'
+>;
+
+function QuestMapNode({ data }: NodeProps<QuestNode>) {
+  const { quest, context, onSelect, selected } = data;
+  return (
+    <div
+      className={`quest-node-content ${quest.kind}${context ? ' context-node' : ''}${selected ? ' is-selected' : ''}`}
+    >
+      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <button
+        id={`quest-trigger-${quest.id}`}
+        className="quest-node-button nodrag"
+        onClick={() => onSelect(quest.id)}
+        aria-label={`查看${quest.title}${context ? '，前置任务' : ''}`}
+        aria-pressed={selected}
+      >
+        <span className="quest-node-frame">
+          <span className="quest-node-symbol" aria-hidden="true">
+            <QuestArtwork quest={quest} />
+          </span>
+        </span>
+        <strong>{quest.title}</strong>
+        <small>{data.preview ? '预览' : progressLabel(data.progress)}</small>
+        {rewardLabel(data.progress) && (
+          <small className={`reward-badge ${data.progress?.rewardStatus}`}>
+            {rewardLabel(data.progress)}
+          </small>
+        )}
+        {context && <small>前置任务</small>}
+        {data.crossChapter && <small>含跨章前置</small>}
+      </button>
+      <Handle type="source" position={Position.Right} isConnectable={false} />
+    </div>
+  );
+}
+
+const nodeTypes = { quest: QuestMapNode };
+
+function GraphControls({ taskIds, compact }: { taskIds: string[]; compact: boolean }) {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const { zoom } = useViewport();
+  return (
+    <FlowPanel
+      position="bottom-left"
+      className="graph-controls"
+      aria-label="流程图缩放"
+      role="group"
+    >
+      <Button
+        variant="icon"
+        aria-label="放大流程图"
+        title="放大"
+        disabled={zoom >= 1.99}
+        onClick={() => void zoomIn()}
+      >
+        <Icon name="plus" />
+      </Button>
+      <Button
+        variant="icon"
+        aria-label="缩小流程图"
+        title="缩小"
+        disabled={zoom <= 0.351}
+        onClick={() => void zoomOut()}
+      >
+        <Icon name="minus" />
+      </Button>
+      <Button
+        variant="icon"
+        aria-label="回到合适视野"
+        title="回到合适视野"
+        disabled={!taskIds.length}
+        onClick={() =>
+          void fitView({
+            padding: 0.3,
+            maxZoom: 1.2,
+            nodes: (compact ? taskIds.slice(0, 1) : taskIds).map((id) => ({ id })),
+          })
+        }
+      >
+        <Icon name="fit" />
+      </Button>
+    </FlowPanel>
+  );
+}
+
+function subscribeToCompactLayout(listener: () => void) {
+  const query = window.matchMedia('(max-width: 600px)');
+  query.addEventListener('change', listener);
+  return () => query.removeEventListener('change', listener);
+}
+
+function isCompactLayout() {
+  return window.matchMedia('(max-width: 600px)').matches;
+}
 
 interface Props {
   quests: Quest[];
-  selectedId: string;
+  filter: QuestFilter;
+  progress: QuestProgress[] | null;
+  selectedId: string | null;
   onSelect: (id: string) => void;
+  presentation: ChapterPresentation | undefined;
+  preview?: boolean;
+  compactPreview?: boolean;
 }
 
-export default function QuestGraph({ quests, selectedId, onSelect }: Props) {
-  const nodes: Node[] = quests.map((quest) => ({
+export default function QuestGraph({
+  quests,
+  progress,
+  filter,
+  selectedId,
+  onSelect,
+  presentation,
+  preview = false,
+  compactPreview,
+}: Props) {
+  const detectedCompact = useSyncExternalStore(subscribeToCompactLayout, isCompactLayout);
+  const compact = compactPreview ?? detectedCompact;
+  const matches = (quest: Quest) => filter === 'all' || quest.kind === filter;
+  const visibleIds = new Set(quests.filter(matches).map((quest) => quest.id));
+  const byId = new Map(quests.map((quest) => [quest.id, quest]));
+  // Retain prerequisites as muted context when a side-task filter would hide them.
+  function includePrerequisites(id: string) {
+    for (const prerequisite of byId.get(id)?.prerequisites ?? []) {
+      if (byId.has(prerequisite) && !visibleIds.has(prerequisite)) {
+        visibleIds.add(prerequisite);
+        includePrerequisites(prerequisite);
+      }
+    }
+  }
+  for (const id of [...visibleIds]) includePrerequisites(id);
+  const visibleQuests = quests.filter((quest) => visibleIds.has(quest.id));
+  const firstTask = visibleQuests.find(matches);
+  const nodes: QuestNode[] = visibleQuests.map((quest) => ({
     id: quest.id,
+    type: 'quest',
     position: quest.position,
     data: {
-      label: (
-        <button
-          className="quest-node-button"
-          onClick={() => onSelect(quest.id)}
-          aria-pressed={quest.id === selectedId}
-        >
-          <span className="node-kind">{quest.kind === 'main' ? '主线' : '支线'}</span>
-          <strong>{quest.title}</strong>
-        </button>
-      ),
+      quest,
+      progress: progress?.find((item) => item.questId === quest.id),
+      context: !matches(quest),
+      selected: quest.id === selectedId,
+      crossChapter: quest.prerequisites.some((id) => !byId.has(id)),
+      preview,
+      onSelect,
     },
-    className: `quest-node ${quest.kind}${quest.id === selectedId ? ' is-selected' : ''}`,
-    ariaLabel: `${quest.kind === 'main' ? '主线' : '支线'}：${quest.title}`,
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
+    ariaLabel: quest.title,
   }));
-  const edges: Edge[] = quests.flatMap((quest) =>
-    quest.prerequisites.map((source) => ({
-      id: `${source}:${quest.id}`,
-      source,
-      target: quest.id,
-      type: 'smoothstep',
-      style: { stroke: quest.kind === 'side' ? '#bb9152' : '#557c69', strokeWidth: 2 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: quest.kind === 'side' ? '#bb9152' : '#557c69',
-      },
-    })),
+  const edges: Edge[] = visibleQuests.flatMap((quest) =>
+    quest.prerequisites
+      .filter((source) => visibleIds.has(source))
+      .map((source) => ({
+        id: `${source}:${quest.id}`,
+        source,
+        target: quest.id,
+        type: 'smoothstep',
+        style: { stroke: quest.kind === 'side' ? '#b29360' : '#829181', strokeWidth: 1.8 },
+      })),
   );
 
   return (
-    <div className="quest-graph" aria-label="任务路线图">
+    <div className="quest-graph" aria-label="任务流程图">
+      {presentation?.backgroundAssetId && (
+        <div className="chapter-background" aria-hidden="true">
+          <CourseImage assetId={presentation.backgroundAssetId} decorative />
+        </div>
+      )}
       <ReactFlow
+        key={`${filter}:${compact}`}
         nodes={nodes}
         edges={edges}
-        fitView
-        fitViewOptions={{ padding: 0.25 }}
-        minZoom={0.3}
-        maxZoom={1.6}
+        nodeTypes={nodeTypes}
+        fitView={!presentation?.viewport || compact || filter !== 'all'}
+        defaultViewport={presentation?.viewport ?? { x: 0, y: 0, zoom: 1 }}
+        fitViewOptions={{
+          padding: 0.3,
+          maxZoom: 1.2,
+          ...(compact && firstTask ? { nodes: [{ id: firstTask.id }] } : {}),
+        }}
+        minZoom={0.35}
+        maxZoom={2}
         nodesDraggable={false}
         nodesFocusable={false}
         nodesConnectable={false}
-        onNodeClick={(_event, node) => onSelect(node.id)}
+        edgesFocusable={false}
+        deleteKeyCode={null}
       >
-        <Background color="#d5d9cd" gap={24} size={1} />
-        <Controls showInteractive={false} />
+        <Background color="#c8cec1" gap={24} size={1} />
+        <ViewportPortal>
+          <div className="chapter-decorations">
+            {(presentation?.decorations ?? []).map((item) => (
+              <div
+                key={item.id}
+                className={`canvas-decoration canvas-decoration--${item.type}`}
+                style={{
+                  left: item.position.x,
+                  top: item.position.y,
+                  width: item.width,
+                  height: item.height,
+                  zIndex: item.layer,
+                }}
+              >
+                {item.type === 'image' ? (
+                  <CourseImage assetId={item.assetId} alt={item.alt} />
+                ) : (
+                  <span>{item.text}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </ViewportPortal>
+        <GraphControls
+          taskIds={visibleQuests.filter(matches).map((quest) => quest.id)}
+          compact={compact}
+        />
       </ReactFlow>
+      {!firstTask && (
+        <p className="canvas-empty-hint" role="status">
+          {quests.length ? '暂无该类型任务。' : '本章暂无任务。'}
+        </p>
+      )}
     </div>
   );
 }

@@ -4,11 +4,19 @@
 
 ## 当前状态
 
-项目初始化阶段：React + Vite + Hono 同仓库、同域名、同一次构建部署。已提供只读示例任务 API、路线图／列表切换、任务详情、图谱规则基础测试与 GitHub Actions 检查。
+已接入 React + Vite + Hono、FTB 式任务面板，以及 Better Auth + Drizzle/D1 的账号和个人进度。管理员创建待激活成员，私下交付专属凭证；成员自行设置 11 位数字登录别称、昵称和密码。手机号仅作别称，不验证号码归属，不发送短信或邮件。
 
-**尚未实现账号、真实学习进度、数据库、视频上传、审核和奖励发放。** 示例内容不代表正式课程或个人学习记录。未创建 Cloudflare 资源、未部署线上网站。
+**课程仍为占位内容。** 已支持开始学习、申请线下考核、管理员通过／退回、重新申请及线下奖励领取登记。视频上传按当前决定暂缓，账号注销尚未开放。开发 D1 aslight-dev 已绑定并在本地迁移；没有部署线上网站。
 
 教程与考核文案由用户提供；当前关卡使用“主线1、主线2、主线3、支线1”等占位名称，开发工作只负责系统功能与内容承载。
+
+已支持 `/content` 章节设计：管理员在成员管理中单独授予已激活账号编辑权限，内容人员可新增／归档章节和任务，填写图文、前置关系、坐标、背景与装饰，并查看桌面／手机预览。保存即整体生效，其他人刷新即可查看；没有发布流程。并发保存会提示冲突，原有学习／审核／奖励保留。当前图片只能选择已登记的公开素材，上传和拖动编排仍未实现。
+
+## 页面结构
+
+默认进入 `/flow` 流程图；`/tasks` 为任务列表；`/overview` 为主页面，提供当前章节和任务结构概览。三页共用左侧竖直导航，没有独立的宣传首页。手机也保留左侧导航，缩窄为图标与文字标签，可展开章节列表。章节按数据库顺序排列，章节列表独立滚动；标题、文字图标和顺序不再固定在页面中。
+
+三个子页通过 `?chapter=章节ID` 沿用当前章节，支持刷新与浏览器前进／后退；空章节和失效链接会明确提示。详情中的跨章节前置显示来源章节并可跳转，服务端使用完整课程判断解锁。流程图与列表共用任务类型筛选，`?kind=main` / `?kind=side` 可直接访问。点击任务打开详情弹窗，`?quest=任务ID` 可刷新恢复；Escape 或关闭按钮返回。流程图筛选支线时会淡化保留必要前置节点，避免关系断开。章节支持图片图标、背景和独立画布装饰；任务图片在图谱、列表和详情共用，详情可按顺序展示标题、段落、列表、图片及独立考核内容。缺图时保留文字提示或原标记，装饰不参与解锁和进度。手机长详情使用全屏弹层，关闭入口随滚动保留。手机流程图默认聚焦当前类型的首个任务，支持拖动和双指缩放；任务列表可一次查看全部任务。登录后显示自己的学习状态；未登录时只浏览，不返回个人进度。左下角进入 `/account`；管理员登录后可进入 `/admin` 成员管理。
 
 ## 本地启动
 
@@ -16,16 +24,17 @@
 
 ```sh
 npm ci
+npm run setup:local
 npm run dev
 ```
 
-打开终端输出的本地地址，默认 `http://127.0.0.1:5173`。Vite 与本地 Worker 一起运行，无需登录 Cloudflare，也不需要密钥。Windows PowerShell 若限制 npm.ps1，可使用 `npm.cmd`。
+打开终端输出的本地地址，默认 `http://127.0.0.1:5173`。setup:local 自动生成被忽略的随机本地密钥并执行本地 D1 迁移；不连接远程库，无需 Cloudflare 登录。Windows PowerShell 若限制 npm.ps1，可使用 `npm.cmd`。
 
 ```sh
-npm run check        # 格式、类型、边界、测试、构建、体积
+npm run check        # 类型生成、格式、类型、边界、测试、构建、体积、Worker/D1 集成
 npm run format       # 统一格式
 npm run build        # 生产构建
-npm run preview      # 预览已构建产物，默认端口 4173
+npm run preview      # 预览构建产物；认证的 APP_ORIGIN 必须与预览地址一致
 ```
 
 `npm run deploy` 会先执行全部检查再尝试部署，只有明确要发布且已配置正确的 Cloudflare 账号／资源时使用。当前初始化不执行此命令。
@@ -38,13 +47,14 @@ src/server/          Hono 路由、示例数据、服务端业务规则
 src/shared/          无环境依赖的数据类型
 tests/               Node 原生测试：领域规则和 API 合约
 scripts/             代码边界和构建产物体积检查
-migrations/          数据库接入时添加可版本化迁移
+migrations/          Drizzle schema 与占位课程 SQL 迁移
 docs/                产品规则、架构、账号、开发、部署、路线图
 .github/workflows/   GitHub Actions，只检查不部署
 ```
 
 ## 文档入口
 
+- [UI/UX 与内容编排](docs/UI-UX.md)：固定布局、章节图谱、节点详情、素材配置与内容人员编辑要求；含尚未实现的目标。
 - [AGENTS.md](AGENTS.md)：开发者和 AI Agent 共同遵守的约束。
 - [系统架构](docs/ARCHITECTURE.md)：技术选择、目录和运行边界。
 - [业务规则](docs/DOMAIN.md)：任务依赖、进度、提交、审核与奖励。
@@ -52,17 +62,29 @@ docs/                产品规则、架构、账号、开发、部署、路线�
 - [开发与验证](docs/DEVELOPMENT.md)：命令、检查、测试和变更流程。
 - [部署与数据](docs/DEPLOYMENT.md)：Cloudflare、环境隔离、备份和体积预算。
 - [实施路线](docs/ROADMAP.md)：已实现项和未来工作。
+- [课程展示数据](docs/CONTENT.md)：图文、图片引用、背景与装饰协议及当前存储边界。
 - [架构决策 0001](docs/adr/0001-single-repo-react-hono.md)：为何采用这套组合。
 
-## API 骨架
+## API
 
-| 方法和路径                | 用途                                               |
-| ------------------------- | -------------------------------------------------- |
-| `GET /api/health`         | 返回服务可达状态及 scaffold 标识，不代表数据库健康 |
-| `GET /api/demo/quest-map` | 只读示例课程，明确返回 `mode: demo`                |
+| 方法和路径                        | 用途                                          |
+| --------------------------------- | --------------------------------------------- |
+| GET /api/health                   | 服务可达性与 scaffold 标识，不代表数据库健康  |
+| GET /api/demo/quest-map           | 只读示例，不含个人进度，mode: demo            |
+| GET /api/member/quest-map         | 数据库课程及自己的进度；匿名 progress 为 null |
+| POST /api/member/quests/:id/start | 开始已解锁任务，请求体为 {}                   |
+| /api/auth/*                       | Better Auth 别称登录与会话接口                |
 
-其他 API 返回 JSON 404，不回退到首页。浏览器页面路径由静态资源的 SPA 回退处理。没有任何写操作或真实成员数据接口。
+线下考核接口：`GET /api/member/quests/:id/learning` 读取自己的历史与奖励，`POST /api/member/quests/:id/assessments` 申请考核。管理员在 `/admin/learning` 选择成员与任务，配置任务奖励、登记考核、查看历史和登记实际交付；对应 `/api/admin/learning/*` 接口均验证管理员权限。完整规则见 [DOMAIN](docs/DOMAIN.md)。
+
+其他 API 返回 JSON 404。数据库课程使用 mode: placeholder，不复用示例任务 ID。成员课程响应的 map 包含 chapters、全课程 quests 和受控 assets 素材引用；只返回可浏览章节与未归档任务，匿名 progress 为 null。章节可见状态仅是基础字段，尚无网页编课或正式发布流程。账号测试见 [AUTH](docs/AUTH.md)，环境配置见 [DEPLOYMENT](docs/DEPLOYMENT.md)。
 
 ## 协作
 
 首次提交包含锁文件；后续使用 `npm ci` 复现依赖。提交代码前运行检查并阅读 [AGENTS.md](AGENTS.md)。仓库尚未指定开源许可证，公开可见性不等于授权复用。
+
+## 首次管理员
+
+本地迁移后运行 `npm run auth:admin -- bootstrap --local`。专属激活链接只写到被忽略的 `.cache/admin-access/*.txt`，不输出到终端、不自动发消息。站点所有者打开对应文件后，自行填写登录别称和密码激活。工具不设置默认密码，重复 bootstrap 不覆盖现有管理员。
+
+管理员忘记密码或丢失未使用凭证时，拥有本机运维权限的人可显式运行 `npm run auth:admin -- recover --local`，生成新的专属凭证。后台网页不能恢复或创建管理员。

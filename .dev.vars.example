@@ -1,3 +1,4 @@
-# 当前骨架无需密钥即可运行。
-# 后续仅在本地 .dev.vars 中配置服务端密钥；不要使用 VITE_ 前缀。
-# 账号和存储接入方案见 docs/AUTH.md 与 docs/DEPLOYMENT.md。
+# npm run setup:local 自动生成随机本地认证密钥，不使用示例值。
+# BETTER_AUTH_SECRET=replace-with-a-random-secret-of-at-least-32-characters
+# APP_ORIGIN=http://127.0.0.1:5173
+# 无短信／邮件服务，不需要 Resend 或其他发信密钥。

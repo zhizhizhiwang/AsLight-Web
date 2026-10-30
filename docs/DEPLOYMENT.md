@@ -1,14 +1,14 @@
 # 部署、数据和体积预算
 
-状态：本地配置已建立。没有创建 D1/R2，没有生产密钥，没有线上部署。首次 GitHub 上传只托管源代码并运行 CI。
+状态：已创建开发 D1 aslight-dev 并绑定，本地已迁移；没有 R2、生产密钥或线上部署。首次 GitHub 上传只托管源代码并运行 CI。
 
 ## 环境
 
-- 本地：Vite + Cloudflare 插件使用本地 Worker；当前无需外部资源和 Cloudflare 登录。
+- 本地：Vite + Cloudflare 插件使用本地 Worker；本地 D1 与无短信账号，无需登录 Cloudflare，先执行 setup:local。
 - 测试：将来使用独立 Worker 名、D1 和 R2；不得共用生产数据库、视频或账号密钥。
 - 正式：独立域名和资源；通过真实网络和登录渠道验收后发布。
 
-当前 wrangler.jsonc 为可运行骨架，未声明虚构的资源 ID。首次接入时使用实际创建结果配置 DB（D1）和 MEDIA（R2）等 binding，并生成服务端类型；将真实迁移提交到 migrations。不要只加空 binding 就宣称数据持久化完成。
+当前 wrangler.jsonc 的 DB 是真实创建的开发库 aslight-dev，不用于生产。R2 尚未配置；迁移位于 migrations。默认 HTTP 回环来源只能用于本地；公网认证要求精确 HTTPS 来源与独立密钥。
 
 compatibility_date 固定为当前安装运行时支持的 2026-10-19，不随电脑日期自动变化；更新日期或工具链必须重新跑本地 Worker 验证。
 
@@ -57,3 +57,15 @@ D1 保存结构化数据；R2 保存图片和视频；GitHub 保存代码、锁�
 - [China Network](https://developers.cloudflare.com/china-network/)
 
 限额、费用、供应商资格随时间变化；此文不固定报价或承诺永久可用性。
+
+## 无外部消息服务的账号配置
+
+只需 APP_ORIGIN（精确同源地址）和 BETTER_AUTH_SECRET（至少 32 字符的独立随机服务端密钥）。不需要邮件域名、Resend、短信签名或验证码模板。遗留 MAIL_MODE／RESEND_API_KEY 配置不再使用；不要在聊天中提供任何密钥。
+
+新环境先执行迁移，再由受控运维命令 bootstrap 管理员，所有者自行激活。开发与生产仍必须使用独立数据库和 secret。CLI 的 --remote 不等于生产环境：默认配置绑定 aslight-dev，远程操作前确认数据库与来源参数。
+
+0002 重建用户表但保留账号、密码记录和进度，旧会话会退出，旧成员需管理员重新发放激活凭证。上线或有真实数据时，先备份并在隔离环境演练迁移；不改动已执行的 0000/0001。
+
+激活／恢复文件和数据库备份都属于私密运维资料，不进 Git。命令仅显示文件路径，不自动发送给任何人。详细命令见 [AUTH](AUTH.md)。
+
+本地构建会复制 .dev.vars 到被忽略的 Worker 目录供 preview 使用，不在 dist/client。不要把整个 dist 当作公开文件上传。
