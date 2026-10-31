@@ -1,2 +1,3 @@
 import type { Bindings } from './bindings.ts';
-export type AdminContext = { Bindings: Bindings; Variables: { actor: { id: string } } };
+export type AdminActor = { id: string; credentialVersion: number; sessionId: string };
+export type AdminContext = { Bindings: Bindings; Variables: { actor: AdminActor } };

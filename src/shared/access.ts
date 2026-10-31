@@ -18,3 +18,9 @@ export const activateInput = z.strictObject({
 });
 export const resetInput = z.strictObject({ code: claimCodeInput, password: passwordInput });
 export const loginInput = z.strictObject({ alias: loginAliasInput, password: passwordInput });
+export const roleChangeInput = z.strictObject({
+  role: z.enum(['member', 'admin']),
+  expectedVersion: z.number().int().nonnegative(),
+  password: passwordInput,
+  reason: z.string().trim().min(1).max(200),
+});

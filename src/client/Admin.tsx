@@ -1,5 +1,5 @@
 import { Button, Input, Field, Panel, ButtonLink } from './ui.tsx';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { z } from 'zod';
 import { authClient, requestJson } from './auth.ts';
@@ -10,6 +10,7 @@ const memberSchema = z.object({
   alias: z.string().nullable(),
   state: z.enum(['pending', 'active']),
   role: z.enum(['member', 'admin']),
+  roleVersion: z.number().int().nonnegative(),
   createdAt: z.number(),
   canEdit: z.boolean(),
   permissionVersion: z.number().int(),
@@ -30,10 +31,20 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
   const [showCode, setShowCode] = useState(false);
   const [selected, setSelected] = useState<{
     member: Member;
-    action: 'credential' | 'alias' | 'content-permission';
+    action: 'credential' | 'alias' | 'content-permission' | 'role';
   } | null>(null);
+  const operationHeading = useRef<HTMLHeadingElement>(null);
   const [retry, setRetry] = useState(0);
   const permitted = data?.user.role === 'admin';
+  const activeAdmins = members.filter(
+    (member) => member.role === 'admin' && member.state === 'active',
+  ).length;
+  useEffect(() => {
+    if (selected) {
+      operationHeading.current?.scrollIntoView({ block: 'start' });
+      operationHeading.current?.focus({ preventScroll: true });
+    }
+  }, [selected]);
   useEffect(() => {
     setIssued(null);
     setShowCode(false);
@@ -93,6 +104,13 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
                 expectedVersion: selected.member.permissionVersion,
               }
             : {}),
+          ...(selected.action === 'role'
+            ? {
+                role: selected.member.role === 'member' ? 'admin' : 'member',
+                expectedVersion: selected.member.roleVersion,
+                password: String(values.get('password') ?? ''),
+              }
+            : {}),
         };
         const result = await requestJson(
           `/api/admin/members/${encodeURIComponent(selected.member.id)}/${selected.action}`,
@@ -106,6 +124,12 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
               : '内容编辑权限已授予，可以进入章节设计。',
           );
           onPermissionChanged();
+        } else if (selected.action === 'role') {
+          setMessage(
+            selected.member.role === 'member'
+              ? '管理员权限已授予，该账号需要重新登录。内容编辑权限保持原设置。'
+              : '管理员权限已撤销，该账号需要重新登录。内容编辑权限保持原设置。',
+          );
         } else setMessage('登录别称已修改，该成员的原会话和未使用凭证已失效。');
         setSelected(null);
       }
@@ -113,6 +137,8 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
     } catch (error) {
       setError(error instanceof Error ? error.message : '操作未成功。');
     } finally {
+      const passwordField = form.elements.namedItem('password');
+      if (passwordField instanceof HTMLInputElement) passwordField.value = '';
       setBusy(false);
     }
   }
@@ -179,25 +205,63 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
         </Panel>
       )}
       {selected && (
-        <Panel aria-label="成员操作">
-          <h2>
-            {selected.action === 'content-permission'
-              ? selected.member.canEdit
-                ? '撤销内容编辑权限'
-                : '授予内容编辑权限'
-              : selected.action === 'alias'
-                ? '修改登录别称'
-                : selected.member.state === 'pending'
-                  ? '重新生成激活凭证'
-                  : '生成密码重设凭证'}
+        <Panel
+          aria-label="成员操作"
+          key={`${selected.member.id}:${selected.action}:${selected.member.roleVersion}`}
+        >
+          <h2 tabIndex={-1} ref={operationHeading}>
+            {selected.action === 'role'
+              ? selected.member.role === 'member'
+                ? '授予管理员权限'
+                : '撤销管理员权限'
+              : selected.action === 'content-permission'
+                ? selected.member.canEdit
+                  ? '撤销内容编辑权限'
+                  : '授予内容编辑权限'
+                : selected.action === 'alias'
+                  ? '修改登录别称'
+                  : selected.member.state === 'pending'
+                    ? '重新生成激活凭证'
+                    : '生成密码重设凭证'}
           </h2>
-          <p>成员：{selected.member.name}</p>
+          <p>
+            成员：{selected.member.name}
+            {selected.member.alias ? ` · ${selected.member.alias}` : ''}
+          </p>
+          {selected.action === 'role' && (
+            <p>
+              {selected.member.role === 'member'
+                ? '确认后，该成员可管理账号、审核考核、登记奖励，并授予或撤销其他人的管理员权限。章节编辑仍需单独授权。'
+                : '确认后，该账号将无法管理成员、审核考核或登记奖励；已有内容编辑权限会保留。'}
+              权限变更后，该账号需要重新登录。
+            </p>
+          )}
           {selected.action === 'content-permission' && (
             <p>
               编辑权限只允许保存章节和任务，不授予成员管理、审核或发奖权限。管理员自身也需单独授权。
             </p>
           )}
           <form className="form-stack" onSubmit={(event) => void submit(event, false)}>
+            {selected.action === 'role' && (
+              <>
+                <Field>
+                  你的当前登录密码
+                  <Input
+                    name="password"
+                    type="password"
+                    autoComplete="current-password"
+                    minLength={10}
+                    maxLength={128}
+                    required
+                    disabled={busy}
+                  />
+                </Field>
+                <label className="role-confirmation">
+                  <input type="checkbox" required disabled={busy} />
+                  我已核对目标账号，并确认上述权限变更。
+                </label>
+              </>
+            )}
             {selected.action === 'alias' && (
               <Field>
                 新登录别称（11 位数字）
@@ -216,11 +280,15 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
               <Input name="reason" required maxLength={200} />
             </Field>
             <Button variant="primary" type="submit" disabled={busy}>
-              {selected.action === 'content-permission'
-                ? '确认权限变更'
-                : selected.action === 'alias'
-                  ? '确认修改并退出成员的所有设备'
-                  : '确认身份并生成凭证'}
+              {selected.action === 'role'
+                ? selected.member.role === 'member'
+                  ? '确认授予管理员权限'
+                  : '确认撤销管理员权限'
+                : selected.action === 'content-permission'
+                  ? '确认权限变更'
+                  : selected.action === 'alias'
+                    ? '确认修改并退出成员的所有设备'
+                    : '确认身份并生成凭证'}
             </Button>
             <Button type="button" disabled={busy} onClick={() => setSelected(null)}>
               取消
@@ -261,16 +329,31 @@ export function Admin({ onPermissionChanged }: { onPermissionChanged: () => void
                   <p>内容编辑：{member.canEdit ? '已授权' : '未授权'}</p>
                 </div>
                 {member.state === 'active' && (
-                  <Button
-                    disabled={busy}
-                    onClick={() => {
-                      setSelected({ member, action: 'content-permission' });
-                      setIssued(null);
-                      setMessage('');
-                    }}
-                  >
-                    {member.canEdit ? '撤销编辑权限' : '授予编辑权限'}
-                  </Button>
+                  <div className="control-group">
+                    <Button
+                      disabled={busy}
+                      onClick={() => {
+                        setSelected({ member, action: 'content-permission' });
+                        setIssued(null);
+                        setMessage('');
+                      }}
+                    >
+                      {member.canEdit ? '撤销编辑权限' : '授予编辑权限'}
+                    </Button>
+                    {member.id !== data?.user.id && (
+                      <Button
+                        disabled={busy || (member.role === 'admin' && activeAdmins <= 1)}
+                        onClick={() => {
+                          setSelected({ member, action: 'role' });
+                          setIssued(null);
+                          setMessage('');
+                          setError('');
+                        }}
+                      >
+                        {member.role === 'member' ? '授予管理员权限' : '撤销管理员权限'}
+                      </Button>
+                    )}
+                  </div>
                 )}
                 {member.role !== 'admin' && (
                   <div className="control-group">

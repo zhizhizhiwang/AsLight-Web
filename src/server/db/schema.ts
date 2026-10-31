@@ -83,6 +83,7 @@ export const user = sqliteTable('user', {
   email: text('email').unique(),
   loginAlias: text('login_alias').unique(),
   credentialVersion: integer('credential_version').notNull().default(0),
+  roleVersion: integer('role_version').notNull().default(0),
   accountState: text('account_state', { enum: ['pending', 'active'] })
     .notNull()
     .default('pending'),

@@ -78,6 +78,13 @@
       "when": 1793386228980,
       "tag": "0010_storage_monitor",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793423664240,
+      "tag": "0011_admin_roles",
+      "breakpoints": true
     }
   ]
 }

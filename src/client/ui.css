@@ -129,6 +129,16 @@ textarea.ui-control {
 .form-stack > .ui-button {
   justify-self: start;
 }
+.role-confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.6;
+}
+.role-confirmation input {
+  flex: none;
+  margin-top: 5px;
+}
 @media (max-width: 600px) {
   .ui-panel {
     margin: 12px auto;

@@ -154,7 +154,7 @@ export function createAuth(env: Bindings) {
 
 export type Auth = ReturnType<typeof createAuth>;
 
-export async function currentUser(env: Bindings, headers: Headers) {
+export async function currentIdentity(env: Bindings, headers: Headers) {
   const session = await createAuth(env).api.getSession({ headers });
   if (!session) return null;
   // Read authoritative status/role; never grant access from client data or a
@@ -172,5 +172,10 @@ export async function currentUser(env: Bindings, headers: Headers) {
     )
     .where(eq(schema.user.id, session.user.id))
     .get();
-  return row?.user.accountState === 'active' ? row.user : null;
+  return row?.user.accountState === 'active'
+    ? { user: row.user, sessionId: session.session.id }
+    : null;
+}
+export async function currentUser(env: Bindings, headers: Headers) {
+  return (await currentIdentity(env, headers))?.user ?? null;
 }
