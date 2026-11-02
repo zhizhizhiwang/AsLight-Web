@@ -496,5 +496,262 @@ test(
     assert.equal(await db.prepare("SELECT id FROM quest WHERE id='new-task'").first(), null);
     assert.ok(await db.prepare("SELECT id FROM course_quest_deletion WHERE id='new-task'").first());
     assert.deepEqual((await db.prepare('PRAGMA foreign_key_check').all()).results, []);
+    // Chapter deletion mirrors task deletion: explicit IDs, live record checks, external references, audit and no ID reuse.
+    await db.prepare('DELETE FROM throttle').run();
+    const chapterBase = await json('/api/content/course', editor);
+    const chapterDraft = structuredClone(chapterBase.document);
+    chapterDraft.chapters.push(
+      {
+        id: 'chapter-del-ok',
+        title: '待删除章节',
+        description: '',
+        sortOrder: 20,
+        icon: null,
+        archived: false,
+      },
+      {
+        id: 'chapter-keep',
+        title: '保留章节',
+        description: '',
+        sortOrder: 21,
+        icon: null,
+        archived: false,
+      },
+      {
+        id: 'chapter-protected',
+        title: '有记录章节',
+        description: '',
+        sortOrder: 22,
+        icon: null,
+        archived: false,
+      },
+      {
+        id: 'chapter-rollback',
+        title: '回滚章节',
+        description: '',
+        sortOrder: 23,
+        icon: null,
+        archived: false,
+      },
+    );
+    chapterDraft.quests.push(
+      {
+        id: 'chapter-del-a',
+        chapterId: 'chapter-del-ok',
+        title: '待删除任务一',
+        summary: '任务内容待添加',
+        kind: 'main',
+        prerequisites: [],
+        prerequisiteMode: 'all',
+        position: { x: 0, y: 0 },
+        archived: false,
+      },
+      {
+        id: 'chapter-del-b',
+        chapterId: 'chapter-del-ok',
+        title: '待删除任务二',
+        summary: '任务内容待添加',
+        kind: 'side',
+        prerequisites: ['chapter-del-a'],
+        prerequisiteMode: 'all',
+        position: { x: 200, y: 0 },
+        archived: false,
+      },
+      {
+        id: 'chapter-keep-task',
+        chapterId: 'chapter-keep',
+        title: '保留任务',
+        summary: '任务内容待添加',
+        kind: 'main',
+        prerequisites: ['chapter-del-a'],
+        prerequisiteMode: 'all',
+        position: { x: 0, y: 0 },
+        archived: false,
+      },
+      {
+        id: 'chapter-protected-task',
+        chapterId: 'chapter-protected',
+        title: '有记录任务',
+        summary: '任务内容待添加',
+        kind: 'main',
+        prerequisites: [],
+        prerequisiteMode: 'all',
+        position: { x: 0, y: 0 },
+        archived: false,
+      },
+      {
+        id: 'chapter-rollback-task',
+        chapterId: 'chapter-rollback',
+        title: '回滚任务',
+        summary: '任务内容待添加',
+        kind: 'main',
+        prerequisites: [],
+        prerequisiteMode: 'all',
+        position: { x: 0, y: 0 },
+        archived: false,
+      },
+    );
+    let chapterSnapshot = await json('/api/content/course', editor, {
+      expectedRevision: chapterBase.revision,
+      requestId: randomUUID(),
+      reason: '准备章节删除验证',
+      document: chapterDraft,
+    });
+    await json('/api/member/quests/chapter-protected-task/start', member, {});
+    const removeChapterRequest = (snapshot, ids, requestId = randomUUID()) => ({
+      expectedRevision: snapshot.revision,
+      requestId,
+      reason: '删除章节并移除外部前置',
+      deletedChapterIds: ids,
+      document: {
+        ...structuredClone(snapshot.document),
+        chapters: snapshot.document.chapters.filter((c) => !ids.includes(c.id)),
+        quests: snapshot.document.quests
+          .filter((q) => !ids.includes(q.chapterId))
+          .map((q) => ({
+            ...structuredClone(q),
+            prerequisites: q.prerequisites.filter(
+              (id) =>
+                !snapshot.document.quests.some(
+                  (deleted) => deleted.id === id && ids.includes(deleted.chapterId),
+                ),
+            ),
+          })),
+      },
+    });
+    const silentChapter = structuredClone(chapterSnapshot.document);
+    silentChapter.chapters = silentChapter.chapters.filter((c) => c.id !== 'chapter-del-ok');
+    silentChapter.quests = silentChapter.quests.filter((q) => q.chapterId !== 'chapter-del-ok');
+    assert.equal(
+      (
+        await json(
+          '/api/content/course',
+          editor,
+          {
+            expectedRevision: chapterSnapshot.revision,
+            requestId: randomUUID(),
+            reason: '未明确申请删除章节',
+            document: silentChapter,
+          },
+          400,
+        )
+      ).error.code,
+      'COURSE_IDENTITY',
+    );
+    const stillReferenced = removeChapterRequest(chapterSnapshot, ['chapter-del-ok']);
+    stillReferenced.document.quests = stillReferenced.document.quests.map((q) =>
+      q.id === 'chapter-keep-task' ? { ...q, prerequisites: ['chapter-del-a'] } : q,
+    );
+    assert.equal(
+      (await json('/api/content/course', editor, stillReferenced, 409)).error.code,
+      'DELETE_REFERENCED',
+    );
+    assert.equal(
+      (
+        await json(
+          '/api/content/course',
+          editor,
+          removeChapterRequest(chapterSnapshot, ['chapter-protected']),
+          409,
+        )
+      ).error.code,
+      'DELETE_CHAPTER_BLOCKED',
+    );
+    const chapterDeletion = removeChapterRequest(chapterSnapshot, ['chapter-del-ok']);
+    chapterSnapshot = await json('/api/content/course', editor, chapterDeletion);
+    assert.equal(
+      chapterSnapshot.document.chapters.some((c) => c.id === 'chapter-del-ok'),
+      false,
+    );
+    assert.equal(
+      chapterSnapshot.document.quests.some((q) => q.id === 'chapter-del-a'),
+      false,
+    );
+    assert.deepEqual(
+      chapterSnapshot.document.quests.find((q) => q.id === 'chapter-keep-task').prerequisites,
+      [],
+    );
+    assert.equal(
+      await db.prepare("SELECT id FROM chapter WHERE id='chapter-del-ok'").first(),
+      null,
+    );
+    assert.equal(
+      await db
+        .prepare("SELECT id FROM quest WHERE id IN ('chapter-del-a','chapter-del-b')")
+        .first(),
+      null,
+    );
+    const deletedChapterRow = await db
+      .prepare("SELECT * FROM course_chapter_deletion WHERE id='chapter-del-ok'")
+      .first();
+    assert.equal(deletedChapterRow.actor_id, a.id);
+    assert.equal(deletedChapterRow.revision, chapterSnapshot.revision);
+    assert.equal(JSON.parse(deletedChapterRow.snapshot).title, '待删除章节');
+    assert.ok(
+      await db.prepare("SELECT id FROM course_quest_deletion WHERE id='chapter-del-a'").first(),
+    );
+    assert.ok(
+      await db.prepare("SELECT id FROM course_quest_deletion WHERE id='chapter-del-b'").first(),
+    );
+    assert.equal(
+      (await json('/api/member/quest-map')).map.chapters.some((c) => c.id === 'chapter-del-ok'),
+      false,
+    );
+    assert.equal(
+      (await json('/api/content/course', editor, chapterDeletion)).revision,
+      chapterSnapshot.revision,
+    );
+    await json('/api/content/course', editor, { ...chapterDeletion, requestId: randomUUID() }, 409);
+    assert.equal(
+      (
+        await json(
+          '/api/content/course',
+          editor,
+          {
+            expectedRevision: chapterSnapshot.revision,
+            requestId: randomUUID(),
+            reason: '旧章节编号不得复用',
+            document: {
+              ...structuredClone(chapterSnapshot.document),
+              chapters: [
+                ...chapterSnapshot.document.chapters,
+                {
+                  id: 'chapter-del-ok',
+                  title: '重建章节',
+                  description: '',
+                  sortOrder: 20,
+                  icon: null,
+                  archived: false,
+                },
+              ],
+            },
+          },
+          400,
+        )
+      ).error.code,
+      'CHAPTER_ID_REUSED',
+    );
+    await db
+      .prepare(
+        "CREATE TRIGGER fail_chapter_deletion BEFORE INSERT ON course_change BEGIN SELECT RAISE(ABORT,'forced chapter rollback'); END",
+      )
+      .run();
+    await json(
+      '/api/content/course',
+      editor,
+      removeChapterRequest(chapterSnapshot, ['chapter-rollback']),
+      500,
+    );
+    assert.ok(await db.prepare("SELECT id FROM chapter WHERE id='chapter-rollback'").first());
+    assert.ok(await db.prepare("SELECT id FROM quest WHERE id='chapter-rollback-task'").first());
+    assert.equal(
+      await db
+        .prepare("SELECT id FROM course_chapter_deletion WHERE id='chapter-rollback'")
+        .first(),
+      null,
+    );
+    await db.prepare('DROP TRIGGER fail_chapter_deletion').run();
+    assert.deepEqual(await json('/api/content/course', editor), chapterSnapshot);
+    assert.deepEqual((await db.prepare('PRAGMA foreign_key_check').all()).results, []);
   },
 );

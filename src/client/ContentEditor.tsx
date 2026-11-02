@@ -16,9 +16,11 @@ import CourseCanvas from './CourseCanvas.tsx';
 import { EditorProperties } from './EditorProperties.tsx';
 import { CourseMediaProvider } from './CourseContent.tsx';
 import {
+  chapterDeletionReason,
   connectCourseTasks,
   duplicateCourseTasks,
   moveCourseItems,
+  removeCourseChapter,
   removeCourseQuest,
   taskDeletionReason,
 } from './course-editing.ts';
@@ -47,11 +49,20 @@ export default function ContentEditor({
   const [removed, setRemoved] = useState<{ quest: EditableQuest; index: number; saved: boolean }[]>(
     [],
   );
+  const [removedChapters, setRemovedChapters] = useState<
+    {
+      chapter: EditableChapter;
+      index: number;
+      quests: { quest: EditableQuest; index: number }[];
+      saved: boolean;
+    }[]
+  >([]);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmDeleteChapter, setConfirmDeleteChapter] = useState<string | null>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (confirmDelete) cancelDeleteRef.current?.focus();
-  }, [confirmDelete]);
+    if (confirmDelete || confirmDeleteChapter) cancelDeleteRef.current?.focus();
+  }, [confirmDelete, confirmDeleteChapter]);
   const [reload, setReload] = useState(0);
   const [confirmReload, setConfirmReload] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -71,7 +82,9 @@ export default function ContentEditor({
           setDocument(next.document);
           setConfirmReload(false);
           setRemoved([]);
+          setRemovedChapters([]);
           setConfirmDelete(null);
+          setConfirmDeleteChapter(null);
           pending.current = null;
         }
       })
@@ -99,6 +112,12 @@ export default function ContentEditor({
     document && task && snapshot
       ? taskDeletionReason(document, task.id, snapshot.protectedQuestIds)
       : null;
+  const chapterDeleteReason =
+    document && chapter && snapshot
+      ? chapterDeletionReason(document, chapter.id, snapshot.protectedQuestIds)
+      : null;
+  const chapterQuestCount =
+    document && chapter ? document.quests.filter((q) => q.chapterId === chapter.id).length : 0;
   const learningRulesLocked = Boolean(task && snapshot?.protectedQuestIds.includes(task.id));
   const canvasQuests = useMemo(
     () => document?.quests.filter((q) => q.chapterId === chapter?.id && !q.archived) ?? [],
@@ -109,6 +128,7 @@ export default function ContentEditor({
     setParams({ chapter: chapterId, ...(questId ? { quest: questId } : {}) });
     setInspectorOpen(Boolean(questId));
     setConfirmDelete(null);
+    setConfirmDeleteChapter(null);
     setFocusToken((v) => v + 1);
   };
   function addTaskAt(position: { x: number; y: number }) {
@@ -235,6 +255,10 @@ export default function ContentEditor({
     if (!document || busy) return;
     const item = removed.find((item) => item.quest.id === id);
     if (!item) return;
+    if (!document.chapters.some((c) => c.id === item.quest.chapterId)) {
+      setError('所属章节已标记删除，请先撤销章节删除再恢复这个任务。');
+      return;
+    }
     const quests = [...document.quests];
     quests.splice(Math.min(item.index, quests.length), 0, item.quest);
     setDocument({ ...document, quests });
@@ -242,6 +266,54 @@ export default function ContentEditor({
     setError('');
     setMessage('');
     choose(item.quest.chapterId, id);
+  }
+  function removeChapter(id: string) {
+    if (!document || !snapshot || busy) return;
+    const index = document.chapters.findIndex((c) => c.id === id),
+      target = document.chapters[index];
+    if (!target) return;
+    try {
+      const next = removeCourseChapter(document, id, snapshot.protectedQuestIds);
+      setRemovedChapters((items) => [
+        ...items,
+        {
+          chapter: target,
+          index,
+          quests: document.quests.flatMap((quest, questIndex) =>
+            quest.chapterId === id ? [{ quest, index: questIndex }] : [],
+          ),
+          saved: snapshot.document.chapters.some((c) => c.id === id),
+        },
+      ]);
+      setDocument(next);
+      setConfirmDeleteChapter(null);
+      setInspectorOpen(false);
+      setError('');
+      setMessage('');
+      const nextChapter = next.chapters[Math.min(index, next.chapters.length - 1)];
+      if (nextChapter) choose(nextChapter.id);
+      else {
+        setParams({});
+        setCanvasFeedback('');
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '无法删除章节。');
+    }
+  }
+  function undoChapterRemoval(id: string) {
+    if (!document || busy) return;
+    const item = removedChapters.find((entry) => entry.chapter.id === id);
+    if (!item) return;
+    const chapters = [...document.chapters];
+    chapters.splice(Math.min(item.index, chapters.length), 0, item.chapter);
+    const quests = [...document.quests];
+    for (const { quest, index } of [...item.quests].sort((a, b) => a.index - b.index))
+      quests.splice(Math.min(index, quests.length), 0, quest);
+    setDocument({ ...document, chapters, quests });
+    setRemovedChapters((items) => items.filter((entry) => entry.chapter.id !== id));
+    setError('');
+    setMessage('');
+    choose(item.chapter.id);
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -267,6 +339,9 @@ export default function ContentEditor({
       deletedQuestIds: snapshot.document.quests
         .filter((old) => !parsed.data.quests.some((q) => q.id === old.id))
         .map((q) => q.id),
+      deletedChapterIds: snapshot.document.chapters
+        .filter((old) => !parsed.data.chapters.some((c) => c.id === old.id))
+        .map((c) => c.id),
     };
     const fingerprint = JSON.stringify(payload);
     if (!pending.current || pending.current.fingerprint !== fingerprint)
@@ -285,7 +360,9 @@ export default function ContentEditor({
       setDocument(next.document);
       setReason('');
       setRemoved([]);
+      setRemovedChapters([]);
       setConfirmDelete(null);
+      setConfirmDeleteChapter(null);
       pending.current = null;
       setMessage('修改已保存并生效。其他人刷新即可看到。');
       onSaved();
@@ -364,6 +441,26 @@ export default function ContentEditor({
                       </span>
                       <Button disabled={busy} onClick={() => undoRemoval(item.quest.id)}>
                         撤销删除{item.quest.title}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {removedChapters.length > 0 && (
+              <div className="editor-removals" aria-label="本页移除的章节">
+                <p>
+                  保存前可撤销删除；已保存章节只有点击“保存修改”后才会永久删除，章节内的任务会一并删除。
+                </p>
+                <ul>
+                  {removedChapters.map((item) => (
+                    <li key={item.chapter.id}>
+                      <span>
+                        {item.saved ? '待保存删除' : '已移除未保存章节'}：{item.chapter.title}
+                        （含 {item.quests.length} 个任务）
+                      </span>
+                      <Button disabled={busy} onClick={() => undoChapterRemoval(item.chapter.id)}>
+                        撤销删除{item.chapter.title}
                       </Button>
                     </li>
                   ))}
@@ -469,7 +566,7 @@ export default function ContentEditor({
                   </>
                 )}
                 <p className="account-note">
-                  无学习记录且未被其他任务引用的任务可以删除；其余任务使用归档隐藏并保留历史。图片填写公开链接或
+                  无学习记录且未被其他任务引用的任务可以删除；无学习记录且无外部引用的章节可以删除，章节内任务会一并删除。其余内容和有记录的内容使用归档隐藏并保留历史。图片填写公开链接或
                   /course-assets/ 图片路径；新增文件由维护者随网站部署。
                 </p>
               </Panel>
@@ -541,6 +638,7 @@ export default function ContentEditor({
                 onClose={() => {
                   setInspectorOpen(false);
                   setConfirmDelete(null);
+                  setConfirmDeleteChapter(null);
                 }}
               >
                 <fieldset disabled={busy} className="editor-properties-fields">
@@ -857,6 +955,39 @@ export default function ContentEditor({
                       >
                         {chapter.archived ? '恢复章节' : '归档章节'}
                       </Button>
+                      <Button
+                        disabled={busy || Boolean(chapterDeleteReason)}
+                        onClick={() =>
+                          snapshot.document.chapters.some((c) => c.id === chapter.id)
+                            ? setConfirmDeleteChapter(chapter.id)
+                            : removeChapter(chapter.id)
+                        }
+                      >
+                        删除章节
+                      </Button>
+                      {chapterDeleteReason && <p className="account-note">{chapterDeleteReason}</p>}
+                      {confirmDeleteChapter === chapter.id && (
+                        <div className="editor-reload" role="alert">
+                          <p>
+                            确认删除「{chapter.title}」
+                            {chapterQuestCount > 0
+                              ? `？章节内 ${chapterQuestCount} 个任务也会一并删除。`
+                              : '？'}
+                            点击“保存修改”后会永久删除，网页暂不提供恢复入口；保存前可以撤销。
+                          </p>
+                          <div className="control-group">
+                            <Button disabled={busy} onClick={() => removeChapter(chapter.id)}>
+                              确认删除，待保存
+                            </Button>
+                            <Button
+                              ref={cancelDeleteRef}
+                              onClick={() => setConfirmDeleteChapter(null)}
+                            >
+                              取消删除
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       {chapter.archived && (
                         <p className="account-note">
                           该章节已归档，保存后本章全部任务将在成员端隐藏。

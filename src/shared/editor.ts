@@ -44,6 +44,11 @@ export const saveCourseSchema = z.strictObject({
     .max(1000)
     .refine((ids) => new Set(ids).size === ids.length)
     .optional(),
+  deletedChapterIds: z
+    .array(id)
+    .max(200)
+    .refine((ids) => new Set(ids).size === ids.length)
+    .optional(),
 });
 export const contentAccessSchema = z.object({ canEdit: z.boolean() });
 export const editorSnapshotSchema = z.object({

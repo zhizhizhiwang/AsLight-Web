@@ -266,6 +266,15 @@ export const courseQuestDeletion = sqliteTable('course_quest_deletion', {
   deletedAt: integer('deleted_at').notNull(),
   revision: integer('revision').notNull(),
 });
+export const courseChapterDeletion = sqliteTable('course_chapter_deletion', {
+  id: text('id').primaryKey(),
+  snapshot: text('snapshot').notNull(),
+  actorId: text('actor_id')
+    .notNull()
+    .references(() => user.id),
+  deletedAt: integer('deleted_at').notNull(),
+  revision: integer('revision').notNull(),
+});
 export const progress = sqliteTable(
   'progress',
   {

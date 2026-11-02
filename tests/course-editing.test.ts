@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  chapterDeletionReason,
   connectCourseTasks,
   duplicateCourseTasks,
   moveCourseItems,
+  removeCourseChapter,
   removeCourseQuest,
   taskDeletionReason,
 } from '../src/client/course-editing.ts';
@@ -64,6 +66,32 @@ test('removing an unused task preserves other tasks and never silently detaches 
   original.quests[2]!.archived = true;
   assert.match(taskDeletionReason(original, 'b', []) ?? '', /前置/);
   assert.throws(() => removeCourseQuest(original, 'missing'), /不存在/);
+});
+test('deleting a chapter removes its tasks and blocks recorded or externally referenced chapters', () => {
+  const original = fixture(),
+    before = structuredClone(original);
+  assert.match(chapterDeletionReason(original, 'one', []) ?? '', /前置/);
+  assert.throws(() => removeCourseChapter(original, 'one'), /前置/);
+  assert.throws(() => removeCourseChapter(original, 'two', ['c']), /记录/);
+  assert.throws(() => removeCourseChapter(original, 'missing'), /不存在/);
+  const next = removeCourseChapter(original, 'two');
+  assert.deepEqual(
+    next.chapters.map((c) => c.id),
+    ['one'],
+  );
+  assert.deepEqual(
+    next.quests.map((q) => q.id),
+    ['a'],
+  );
+  assert.deepEqual(original, before);
+  const unlinkedSource = fixture();
+  unlinkedSource.quests[1]!.prerequisites = [];
+  assert.equal(chapterDeletionReason(unlinkedSource, 'one', []), null);
+  const unlinked = removeCourseChapter(unlinkedSource, 'one');
+  assert.deepEqual(
+    unlinked.quests.map((q) => q.id),
+    ['b', 'c'],
+  );
 });
 test('canvas dependency edits keep branch modes and reject self, cycles, duplicates and archived references', () => {
   const original = fixture(),

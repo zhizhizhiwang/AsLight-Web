@@ -22,6 +22,38 @@ export function removeCourseQuest(
   return { ...document, quests: document.quests.filter((q) => q.id !== id) };
 }
 
+export function chapterDeletionReason(
+  document: CourseDocument,
+  id: string,
+  protectedIds: readonly string[],
+): string | null {
+  if (!document.chapters.some((c) => c.id === id)) return '章节不存在，请重新加载课程。';
+  const quests = document.quests.filter((q) => q.chapterId === id);
+  const blocked = quests.find((q) => protectedIds.includes(q.id));
+  if (blocked) return `章节内的任务「${blocked.title}」已有学习、考核或奖励记录，请使用归档。`;
+  for (const quest of quests) {
+    const reference = document.quests.find(
+      (q) => q.chapterId !== id && q.prerequisites.includes(quest.id),
+    );
+    if (reference)
+      return `「${reference.title}」仍把此章节的「${quest.title}」作为前置，请先移除这条关系。`;
+  }
+  return null;
+}
+export function removeCourseChapter(
+  document: CourseDocument,
+  id: string,
+  protectedIds: readonly string[] = [],
+): CourseDocument {
+  const reason = chapterDeletionReason(document, id, protectedIds);
+  if (reason) throw new Error(reason);
+  return {
+    ...document,
+    chapters: document.chapters.filter((c) => c.id !== id),
+    quests: document.quests.filter((q) => q.chapterId !== id),
+  };
+}
+
 export function moveCourseItems(document: CourseDocument, moves: CanvasMove[]): CourseDocument {
   if (
     moves.some(
