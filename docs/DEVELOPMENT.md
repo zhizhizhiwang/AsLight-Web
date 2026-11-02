@@ -55,6 +55,8 @@ GitHub Actions 运行 npm ci 和 npm run check。包含本地 Worker/D1 集成�
 
 cf:typegen 从 Wrangler 生成被忽略的运行时类型，check 会先生成；CI 无需真实 secret 或 Cloudflare 登录。test:integration 在 build 后使用真实 workerd、持久临时 D1 执行迁移和身份／越权／并发测试，结束清理自己的临时目录。check 已包含这一步。
 
+Windows 上若执行环境（沙箱）限制写入系统临时目录，Miniflare 会因无法创建内部存储而启动失败，报 `CreateDirectory: #5` 和 `miniflare-CacheObject`／`miniflare-email-store` 等路径，`npm run dev`、`preview` 与 `test:integration` 都会受影响。把当前进程的 TEMP／TMP 指向项目内已被忽略的 `.cache/dev-tmp`（集成测试可用 `.cache/integration-tmp`）后重跑即可；该环境还需允许本机回环连接，否则会先遇到 `connect EACCES 127.0.0.1`。拉到包含新迁移的代码后先执行 `npm run db:migrate:local`，否则本地 D1 仍停在旧版本，相关接口会报表不存在。
+
 APP_ORIGIN 默认 http://127.0.0.1:5173；使用 localhost 或 4173 时在 .dev.vars 覆盖并重启，不使用通配来源。测试密钥独立随机生成。Miniflare 5 使用官方 V4 配置转换入口及显式模块列表。
 
 Drizzle 生成父表重建时必须检查 D1 外键行为，不能照搬 PRAGMA foreign_keys=OFF 或导致级联删除；0002 已改为 D1 安全的子表保留与恢复，并测试旧进度不丢失。新 schema 用 db:generate，自定义迁移维护 journal/snapshot，不修改已执行迁移。
